@@ -79,7 +79,7 @@ export default function CheckoutIndex() {
 
     // Format currency
     const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('id-ID', {
+        return new Intl.NumberFormat('en-US', {
             style: 'currency',
             currency: 'IDR',
         }).format(amount);
@@ -112,12 +112,12 @@ export default function CheckoutIndex() {
     // Handle payment
     const handlePayment = async () => {
         if (!customerName.trim()) {
-            setErrors({ customer_name: 'Nama pelanggan harus diisi' });
+            setErrors({ customer_name: 'Customer name is required' });
             return;
         }
 
         if (!tableNumber.trim() || parseInt(tableNumber) < 1) {
-            setErrors({ table_number: 'Nomor meja harus diisi dengan angka yang valid' });
+            setErrors({ table_number: 'A valid table number is required' });
             return;
         }
 
@@ -152,7 +152,7 @@ export default function CheckoutIndex() {
 
                 // Check if Snap is available
                 if (!window.snap) {
-                    setErrors({ general: 'Midtrans Snap belum siap. Silakan refresh halaman dan coba lagi.' });
+                    setErrors({ general: 'Midtrans Snap is not ready. Please refresh the page and try again.' });
                     setIsLoading(false);
                     return;
                 }
@@ -171,7 +171,7 @@ export default function CheckoutIndex() {
                         },
                         onError: function (result: any) {
                             console.error('Payment error:', result);
-                            alert('Pembayaran gagal. Silakan coba lagi.');
+                            alert('Payment failed. Please try again.');
                             setIsLoading(false);
                         },
                         onClose: function () {
@@ -181,16 +181,16 @@ export default function CheckoutIndex() {
                     });
                 } catch (error) {
                     console.error('Error opening Snap:', error);
-                    setErrors({ general: 'Gagal membuka halaman pembayaran. Silakan coba lagi.' });
+                    setErrors({ general: 'Unable to open the payment page. Please try again.' });
                     setIsLoading(false);
                 }
             } else {
-                setErrors({ general: data.error || 'Terjadi kesalahan saat memproses pesanan' });
+                setErrors({ general: data.error || 'An error occurred while processing the order' });
                 setIsLoading(false);
             }
         } catch (error) {
             console.error('Checkout error:', error);
-            setErrors({ general: 'Terjadi kesalahan jaringan. Silakan coba lagi.' });
+            setErrors({ general: 'A network error occurred. Please try again.' });
             setIsLoading(false);
         }
     };
@@ -206,7 +206,7 @@ export default function CheckoutIndex() {
                 <Head title="Checkout - Kasirku" />
                 <div className="flex items-center gap-2">
                     <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-primary"></div>
-                    <span className="text-muted-foreground">Memuat keranjang...</span>
+                    <span className="text-muted-foreground">Loading cart...</span>
                 </div>
             </div>
         );
@@ -230,7 +230,7 @@ export default function CheckoutIndex() {
                             </Button>
                             <div>
                                 <h1 className="text-2xl font-bold text-foreground">Checkout</h1>
-                                <p className="text-muted-foreground">Konfirmasi pesanan Anda</p>
+                                <p className="text-muted-foreground">Confirm your order</p>
                             </div>
                         </div>
                     </div>
@@ -245,9 +245,9 @@ export default function CheckoutIndex() {
                         <CardContent className="flex items-center gap-3 p-4">
                             <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                             <div>
-                                <p className="font-medium text-amber-800 dark:text-amber-200">Pemesanan Dine In Only</p>
+                                <p className="font-medium text-amber-800 dark:text-amber-200">Dine-In Orders Only</p>
                                 <p className="text-sm text-amber-700 dark:text-amber-300">
-                                    Saat ini kami hanya menerima pesanan untuk dine in. Silakan pilih meja Anda dan nikmati makanan di tempat.
+                                    We currently only accept dine-in orders. Please choose your table and enjoy your meal here.
                                 </p>
                             </div>
                         </CardContent>
@@ -259,7 +259,7 @@ export default function CheckoutIndex() {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <ShoppingCart className="h-5 w-5" />
-                                    Ringkasan Pesanan
+                                    Order Summary
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
@@ -289,7 +289,7 @@ export default function CheckoutIndex() {
                                                     {item.product.category.name}
                                                 </Badge>
                                             )}
-                                            {item.notes && <p className="mt-1 text-xs text-muted-foreground">Catatan: {item.notes}</p>}
+                                            {item.notes && <p className="mt-1 text-xs text-muted-foreground">Note: {item.notes}</p>}
                                         </div>
 
                                         <div className="text-right">
@@ -302,11 +302,11 @@ export default function CheckoutIndex() {
 
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-sm">
-                                        <span>Subtotal ({getTotalItems()} item)</span>
+                                        <span>Subtotal ({getTotalItems()} items)</span>
                                         <span>{formatCurrency(getSubtotal())}</span>
                                     </div>
                                     <div className="flex justify-between text-sm">
-                                        <span>Pajak ({TAX_RATE * 100}%)</span>
+                                        <span>Tax ({TAX_RATE * 100}%)</span>
                                         <span>{formatCurrency(getTaxAmount())}</span>
                                     </div>
                                     <Separator />
@@ -321,7 +321,7 @@ export default function CheckoutIndex() {
                         {/* Customer Information */}
                         <Card>
                             <CardHeader>
-                                <CardTitle>Informasi Pelanggan</CardTitle>
+                                <CardTitle>Customer Information</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 {errors.general && (
@@ -331,11 +331,11 @@ export default function CheckoutIndex() {
                                 )}
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="customer_name">Nama Pelanggan *</Label>
+                                    <Label htmlFor="customer_name">Customer Name *</Label>
                                     <Input
                                         id="customer_name"
                                         type="text"
-                                        placeholder="Masukkan nama Anda"
+                                        placeholder="Enter your name"
                                         value={customerName}
                                         onChange={(e) => setCustomerName(e.target.value)}
                                         className={errors.customer_name ? 'border-red-500' : ''}
@@ -344,12 +344,12 @@ export default function CheckoutIndex() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="table_number">Nomor Meja *</Label>
+                                    <Label htmlFor="table_number">Table Number *</Label>
                                     <Input
                                         id="table_number"
                                         type="number"
                                         min="1"
-                                        placeholder="Masukkan nomor meja"
+                                        placeholder="Enter table number"
                                         value={tableNumber}
                                         onChange={(e) => setTableNumber(e.target.value)}
                                         className={errors.table_number ? 'border-red-500' : ''}
@@ -360,11 +360,11 @@ export default function CheckoutIndex() {
                                 <Separator />
 
                                 <Button className="w-full" size="lg" onClick={handlePayment} disabled={isLoading}>
-                                    {isLoading ? 'Memproses...' : `Bayar ${formatCurrency(getTotalPrice())}`}
+                                    {isLoading ? 'Processing...' : `Pay ${formatCurrency(getTotalPrice())}`}
                                 </Button>
 
                                 <p className="text-center text-xs text-muted-foreground">
-                                    Dengan melanjutkan pembayaran, Anda menyetujui syarat dan ketentuan kami.
+                                    By continuing with payment, you agree to our terms and conditions.
                                 </p>
                             </CardContent>
                         </Card>

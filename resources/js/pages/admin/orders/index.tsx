@@ -835,8 +835,8 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value="pending">Pending (Belum siap)</SelectItem>
-                                                        <SelectItem value="completed">Completed (Siap diambil)</SelectItem>
+                                                        <SelectItem value="pending">Pending (Not ready)</SelectItem>
+                                                        <SelectItem value="completed">Completed (Ready for pickup)</SelectItem>
                                                         <SelectItem value="cancelled">Cancelled</SelectItem>
                                                     </SelectContent>
                                                 </Select>

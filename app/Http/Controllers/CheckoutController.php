@@ -141,7 +141,7 @@ class CheckoutController extends Controller
     } catch (\Exception $e) {
       DB::rollBack();
       return response()->json([
-        'error' => 'Terjadi kesalahan saat memproses pesanan: ' . $e->getMessage()
+        'error' => 'An error occurred while processing the order: ' . $e->getMessage()
       ], 500);
     }
   }

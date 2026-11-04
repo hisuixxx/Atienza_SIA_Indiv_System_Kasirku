@@ -84,7 +84,7 @@ class PrintController extends Controller
         if ($paid > 0) {
             $change = $paid - $total;
             $formattedText .= "PAYMENT\n";
-            $formattedText .= "Bayar|Rp " . number_format($paid, 0, ',', '.') . "\n";
+            $formattedText .= "Payment|Rp " . number_format($paid, 0, ',', '.') . "\n";
             $formattedText .= "Kembali|Rp " . number_format($change, 0, ',', '.') . "\n";
         }
 
@@ -217,7 +217,7 @@ class PrintController extends Controller
     {
         // Thank you message
         $printer->setJustification(Printer::JUSTIFY_CENTER);
-        $printer->text("Terima kasih atas kunjungan Anda\n");
+        $printer->text("Thank you for visiting\n");
         $printer->text("Barang yang sudah dibeli\n");
         $printer->text("tidak dapat dikembalikan\n\n");
 

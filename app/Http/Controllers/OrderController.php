@@ -198,12 +198,12 @@ class OrderController extends Controller
       if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
         return response()->json([
           'success' => false,
-          'message' => 'Gagal membuat order: ' . $e->getMessage(),
+          'message' => 'Failed to create order: ' . $e->getMessage(),
           'errors' => ['general' => $e->getMessage()]
         ], 422);
       }
 
-      return redirect()->back()->withErrors(['error' => 'Gagal membuat order: ' . $e->getMessage()]);
+      return redirect()->back()->withErrors(['error' => 'Failed to create order: ' . $e->getMessage()]);
     }
   }
 
@@ -303,12 +303,12 @@ class OrderController extends Controller
       if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
         return response()->json([
           'success' => false,
-          'message' => 'Gagal menghapus order: ' . $e->getMessage(),
+          'message' => 'Failed to delete order: ' . $e->getMessage(),
           'errors' => ['general' => $e->getMessage()]
         ], 422);
       }
 
-      return back()->withErrors(['error' => 'Gagal menghapus order: ' . $e->getMessage()]);
+      return back()->withErrors(['error' => 'Failed to delete order: ' . $e->getMessage()]);
     }
   }
 

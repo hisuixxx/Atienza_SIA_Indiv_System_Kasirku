@@ -34,7 +34,7 @@ export default function OrderStatus({ order: initialOrder }: Props) {
 
     // Format currency
     const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('id-ID', {
+        return new Intl.NumberFormat('en-US', {
             style: 'currency',
             currency: 'IDR',
         }).format(amount);
@@ -42,7 +42,7 @@ export default function OrderStatus({ order: initialOrder }: Props) {
 
     // Format date
     const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleString('id-ID', {
+        return new Date(dateString).toLocaleString('en-US', {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
@@ -95,29 +95,29 @@ export default function OrderStatus({ order: initialOrder }: Props) {
             case 'pending':
                 return {
                     icon: <Clock className="h-8 w-8 text-yellow-500" />,
-                    title: 'Pesanan Sedang Diproses',
-                    description: 'Pesanan Anda sedang dipersiapkan oleh dapur. Mohon tunggu sebentar.',
+                    title: 'Order in Progress',
+                    description: 'Your order is being prepared by the kitchen. Please wait a moment.',
                     color: 'border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950',
                 };
             case 'completed':
                 return {
                     icon: <CheckCircle className="h-8 w-8 text-green-500" />,
-                    title: 'Pesanan Siap Diambil!',
-                    description: 'Pesanan Anda sudah siap. Silakan ambil di kasir dengan menunjukkan halaman ini.',
+                    title: 'Order Ready for Pickup!',
+                    description: 'Your order is ready. Please pick it up at the cashier and show this page.',
                     color: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950',
                 };
             case 'cancelled':
                 return {
                     icon: <Receipt className="h-8 w-8 text-red-500" />,
-                    title: 'Pesanan Dibatalkan',
-                    description: 'Pesanan Anda telah dibatalkan. Silakan hubungi kasir untuk informasi lebih lanjut.',
+                    title: 'Order Cancelled',
+                    description: 'Your order has been cancelled. Please contact the cashier for more information.',
                     color: 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950',
                 };
             default:
                 return {
                     icon: <Clock className="h-8 w-8 text-gray-500" />,
-                    title: 'Status Tidak Diketahui',
-                    description: 'Mohon hubungi kasir untuk informasi lebih lanjut.',
+                    title: 'Unknown Status',
+                    description: 'Please contact the cashier for more information.',
                     color: 'border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-950',
                 };
         }
@@ -127,7 +127,7 @@ export default function OrderStatus({ order: initialOrder }: Props) {
 
     return (
         <div className="min-h-screen bg-background">
-            <Head title={`Pesanan #${order.id} - Status`} />
+            <Head title={`Order #${order.id} - Status`} />
 
             {/* Header */}
             <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -138,8 +138,8 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                             <div>
-                                <h1 className="text-2xl font-bold text-foreground">Status Pesanan</h1>
-                                <p className="text-muted-foreground">Pesanan #{order.id}</p>
+                                <h1 className="text-2xl font-bold text-foreground">Order Status</h1>
+                                <p className="text-muted-foreground">Order #{order.id}</p>
                             </div>
                         </div>
                         <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
@@ -162,7 +162,7 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                                 <p className="text-muted-foreground">{statusInfo.description}</p>
                                 {order.status === 'pending' && (
                                     <p className="mt-2 text-sm text-muted-foreground">
-                                        💡 Halaman ini akan otomatis diperbarui. Anda juga dapat me-refresh secara manual.
+                                        💡 This page will update automatically. You can also refresh it manually.
                                     </p>
                                 )}
                             </div>
@@ -173,26 +173,26 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                         {/* Order Details */}
                         <Card>
                             <CardHeader>
-                                <CardTitle>Detail Pesanan</CardTitle>
+                                <CardTitle>Order Details</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
-                                        <p className="text-muted-foreground">Nama Pelanggan</p>
+                                        <p className="text-muted-foreground">Customer Name</p>
                                         <p className="font-medium">{order.customer_name}</p>
                                     </div>
                                     <div>
-                                        <p className="text-muted-foreground">Nomor Meja</p>
-                                        <p className="font-medium">Meja {order.table_number}</p>
+                                        <p className="text-muted-foreground">Table Number</p>
+                                        <p className="font-medium">Table {order.table_number}</p>
                                     </div>
                                     <div>
-                                        <p className="text-muted-foreground">Waktu Pesanan</p>
+                                        <p className="text-muted-foreground">Order Time</p>
                                         <p className="font-medium">{formatDate(order.created_at)}</p>
                                     </div>
                                     <div>
-                                        <p className="text-muted-foreground">Status Pembayaran</p>
+                                        <p className="text-muted-foreground">Payment Status</p>
                                         <Badge variant={order.payment.status === 'completed' ? 'default' : 'secondary'}>
-                                            {order.payment.status === 'completed' ? 'Lunas' : 'Pending'}
+                                            {order.payment.status === 'completed' ? 'Paid' : 'Pending'}
                                         </Badge>
                                     </div>
                                 </div>
@@ -202,24 +202,24 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                         {/* Payment Info */}
                         <Card>
                             <CardHeader>
-                                <CardTitle>Informasi Pembayaran</CardTitle>
+                                <CardTitle>Payment Information</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-sm">
-                                        <span>Subtotal ({getTotalItems()} item)</span>
+                                        <span>Subtotal ({getTotalItems()} items)</span>
                                         <span>{formatCurrency(getTotalPrice())}</span>
                                     </div>
                                     <Separator />
                                     <div className="flex justify-between font-semibold">
-                                        <span>Total Dibayar</span>
+                                        <span>Total Paid</span>
                                         <span className="text-green-600">{formatCurrency(order.payment.amount)}</span>
                                     </div>
                                 </div>
 
                                 <div className="text-sm text-muted-foreground">
-                                    <p>Metode Pembayaran: {order.payment.payment_method}</p>
-                                    {order.payment.paid_at && <p>Dibayar pada: {formatDate(order.payment.paid_at)}</p>}
+                                    <p>Payment Method: {order.payment.payment_method}</p>
+                                    {order.payment.paid_at && <p>Paid on: {formatDate(order.payment.paid_at)}</p>}
                                 </div>
                             </CardContent>
                         </Card>
@@ -228,7 +228,7 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                     {/* Order Items */}
                     <Card>
                         <CardHeader>
-                            <CardTitle>Item Pesanan</CardTitle>
+                            <CardTitle>Order Items</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {order.order_items.map((item) => (
@@ -257,7 +257,7 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                                                 {item.product.category.name}
                                             </Badge>
                                         )}
-                                        {item.notes && <p className="mt-1 text-xs text-muted-foreground">Catatan: {item.notes}</p>}
+                                        {item.notes && <p className="mt-1 text-xs text-muted-foreground">Note: {item.notes}</p>}
                                     </div>
 
                                     <div className="text-right">
@@ -272,12 +272,12 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                     <Card className="border-dashed">
                         <CardContent className="p-6 text-center">
                             <Receipt className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-                            <h3 className="mb-2 font-semibold">Nota Digital</h3>
+                            <h3 className="mb-2 font-semibold">Digital Receipt</h3>
                             <p className="text-sm text-muted-foreground">
-                                Simpan halaman ini sebagai bukti pesanan Anda. Tunjukkan kepada kasir saat mengambil pesanan.
+                                Save this page as proof of your order. Show it to the cashier when picking up your order.
                             </p>
                             {order.status === 'completed' && (
-                                <p className="mt-2 text-sm font-medium text-green-600">✅ Pesanan siap diambil di kasir</p>
+                                <p className="mt-2 text-sm font-medium text-green-600">✅ Order ready for pickup at the cashier</p>
                             )}
                         </CardContent>
                     </Card>

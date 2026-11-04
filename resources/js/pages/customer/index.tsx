@@ -149,7 +149,7 @@ export default function CustomerIndex({ products: initialProducts, categories, p
 
     // Format currency
     const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('id-ID', {
+        return new Intl.NumberFormat('en-US', {
             style: 'currency',
             currency: 'IDR',
         }).format(amount);
@@ -228,7 +228,7 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                     <div className="flex items-center justify-between">
                         <div>
                             <h1 className="text-2xl font-bold text-foreground">Kasirku</h1>
-                            <p className="text-muted-foreground">Pilih menu favorit Anda</p>
+                            <p className="text-muted-foreground">Choose your favorite menu items</p>
                         </div>
 
                         {/* Cart Button */}
@@ -236,7 +236,7 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                             <DialogTrigger asChild>
                                 <Button className="relative">
                                     <ShoppingCart className="mr-2 h-5 w-5" />
-                                    Keranjang
+                                    Cart
                                     {getTotalItems() > 0 && (
                                         <Badge className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full p-0">
                                             {getTotalItems()}
@@ -246,15 +246,15 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                             </DialogTrigger>
                             <DialogContent className="max-h-[80vh] max-w-md overflow-y-auto">
                                 <DialogHeader>
-                                    <DialogTitle>Keranjang Belanja</DialogTitle>
-                                    <DialogDescription>Review pesanan Anda sebelum melakukan checkout</DialogDescription>
+                                    <DialogTitle>Shopping Cart</DialogTitle>
+                                    <DialogDescription>Review your order before checkout</DialogDescription>
                                 </DialogHeader>
 
                                 <div className="space-y-4">
                                     {cart.length === 0 ? (
                                         <div className="py-8 text-center">
                                             <ShoppingCart className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-                                            <p className="text-muted-foreground">Keranjang Anda kosong</p>
+                                            <p className="text-muted-foreground">Your cart is empty</p>
                                         </div>
                                     ) : (
                                         <>
@@ -326,10 +326,10 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                                     {cart.length > 0 && (
                                         <>
                                             <Button variant="outline" className="w-full" onClick={clearCart}>
-                                                Kosongkan Keranjang
+                                                Clear Cart
                                             </Button>
                                             <Button className="w-full" onClick={goToCheckout}>
-                                                Lanjut ke Checkout ({getTotalItems()} item)
+                                                Continue to Checkout ({getTotalItems()} items)
                                             </Button>
                                         </>
                                     )}
@@ -346,15 +346,15 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                 <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center">
                     <div className="relative max-w-md">
                         <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
-                        <Input placeholder="Cari menu..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
+                        <Input placeholder="Search menu..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
                     </div>
 
                     <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                         <SelectTrigger className="w-[200px]">
-                            <SelectValue placeholder="Semua Kategori" />
+                            <SelectValue placeholder="All Categories" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">Semua Kategori</SelectItem>
+                            <SelectItem value="all">All Categories</SelectItem>
                             {categories.map((category) => (
                                 <SelectItem key={category.id} value={category.id.toString()}>
                                     {category.name}
@@ -421,7 +421,7 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                                                 <Minus className="h-4 w-4" />
                                             </Button>
 
-                                            <span className="flex-grow text-center font-medium">{quantityInCart} di keranjang</span>
+                                            <span className="flex-grow text-center font-medium">{quantityInCart} in cart</span>
 
                                             <Button
                                                 variant="outline"
@@ -434,7 +434,7 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                                     ) : (
                                         <Button className="w-full" onClick={() => addToCart(product)}>
                                             <Plus className="mr-2 h-4 w-4" />
-                                            Tambah ke Keranjang
+                                            Add to Cart
                                         </Button>
                                     )}
                                 </CardContent>
@@ -449,10 +449,10 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                         {isLoadingMore ? (
                             <div className="flex items-center gap-2">
                                 <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-primary"></div>
-                                <span className="text-muted-foreground">Memuat produk lainnya...</span>
+                                <span className="text-muted-foreground">Loading more products...</span>
                             </div>
                         ) : (
-                            <div className="text-muted-foreground">Scroll ke bawah untuk memuat lebih banyak produk</div>
+                            <div className="text-muted-foreground">Scroll down to load more products</div>
                         )}
                     </div>
                 )}
@@ -462,8 +462,8 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                     <div className="flex justify-center py-8">
                         <div className="text-center text-muted-foreground">
                             <div className="mx-auto mb-4 h-px w-24 bg-border"></div>
-                            <p>Anda telah melihat semua produk</p>
-                            <p className="mt-1 text-sm">Menampilkan {filteredProducts.length} produk</p>
+                            <p>You have viewed all products</p>
+                            <p className="mt-1 text-sm">Showing {filteredProducts.length} products</p>
                         </div>
                     </div>
                 )}
@@ -472,11 +472,11 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                 {filteredProducts.length === 0 && !isLoadingMore && (
                     <div className="py-12 text-center">
                         <ImageIcon className="mx-auto h-12 w-12 text-muted-foreground" />
-                        <h3 className="mt-2 text-sm font-medium text-foreground">Tidak ada produk ditemukan</h3>
+                        <h3 className="mt-2 text-sm font-medium text-foreground">No products found</h3>
                         <p className="mt-1 text-sm text-muted-foreground">
                             {searchTerm || (categoryFilter && categoryFilter !== 'all')
-                                ? 'Coba sesuaikan kriteria pencarian Anda'
-                                : 'Belum ada produk yang tersedia'}
+                                ? 'Try adjusting your search criteria'
+                                : 'No products are currently available'}
                         </p>
                     </div>
                 )}
