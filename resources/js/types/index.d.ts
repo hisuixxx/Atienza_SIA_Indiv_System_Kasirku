@@ -28,6 +28,7 @@ export interface SharedData {
     auth: Auth;
     ziggy: Config & { location: string };
     sidebarOpen: boolean;
+    branchContext?: { branches: { id: number; name: string; code: string }[]; selectedBranch: number | null };
     [key: string]: unknown;
 }
 
@@ -35,6 +36,8 @@ export interface User {
     id: number;
     name: string;
     email: string;
+    role?: string;
+    is_active?: boolean;
     avatar?: string;
     email_verified_at: string | null;
     created_at: string;

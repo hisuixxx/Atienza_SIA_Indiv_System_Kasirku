@@ -8,9 +8,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class OrderItems extends Model
 {
-    /** @use HasFactory<\Database\Factories\OrderItemsFactory> */
     use HasFactory;
+
+    protected $table = 'order_items';
     protected $guarded = ['id', 'created_at', 'updated_at'];
+
+    protected $casts = [
+        'price' => 'decimal:2',
+        'subtotal' => 'decimal:2',
+        'customizations' => 'array',
+    ];
 
     public function order(): BelongsTo
     {

@@ -590,7 +590,7 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
         setSelectedOrder(order);
         setFormData({
             customer_name: order.customer_name,
-            payment_method: order.payment.method,
+            payment_method: order.payment.method ?? 'cash',
             table_number: 0, // Default for existing orders
             status: order.status, // Order status, not payment status
             items: [],

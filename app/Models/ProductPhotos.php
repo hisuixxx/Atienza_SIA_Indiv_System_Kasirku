@@ -8,8 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProductPhotos extends Model
 {
-    /** @use HasFactory<\Database\Factories\ProductPhotosFactory> */
     use HasFactory;
+
+    protected $table = 'product_photos';
     protected $guarded = ['id', 'created_at', 'updated_at'];
     protected $casts = ['is_primary' => 'boolean'];
 

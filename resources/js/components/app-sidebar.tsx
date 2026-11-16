@@ -1,14 +1,16 @@
+// Sidebar component for BrewSync admin dashboard
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { type NavItem } from '@/types';
-import { Link } from '@inertiajs/react';
-import { BookOpen, ChartBarStacked, Folder, LayoutGrid, ShoppingCart, Utensils } from 'lucide-react';
+import { type NavItem, type SharedData } from '@/types';
+import { Link, usePage } from '@inertiajs/react';
+import { BellRing, ChartBarStacked, LayoutGrid, ShoppingCart, Utensils, Wallet, BarChart3, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
+// Updated navigation items to match BrewSync requirements
 const mainNavItems: NavItem[] = [
     {
-        title: 'Dashboard',
+        title: 'Overview',
         href: '/admin/dashboard',
         icon: LayoutGrid,
     },
@@ -18,7 +20,7 @@ const mainNavItems: NavItem[] = [
         icon: ShoppingCart,
     },
     {
-        title: 'Foods & Drinks',
+        title: 'Products',
         href: '/admin/products',
         icon: Utensils,
     },
@@ -27,22 +29,32 @@ const mainNavItems: NavItem[] = [
         href: '/admin/categories',
         icon: ChartBarStacked,
     },
-];
-
-const footerNavItems: NavItem[] = [
     {
-        title: 'Repository',
-        href: 'https://github.com/laravel/react-starter-kit',
-        icon: Folder,
+        title: 'Payments',
+        href: '/admin/payments',
+        icon: Wallet,
     },
     {
-        title: 'Documentation',
-        href: 'https://laravel.com/docs/starter-kits#react',
-        icon: BookOpen,
+        title: 'Sales reports',
+        href: '/admin/reports',
+        icon: BarChart3,
+    },
+    {
+        title: 'Kitchen queue',
+        href: '/admin/kitchen',
+        icon: BellRing,
     },
 ];
 
 export function AppSidebar() {
+    const { auth } = usePage<SharedData>().props;
+    const role = auth.user.role ?? 'cashier';
+    const visibleNavItems = mainNavItems.filter(item => {
+        // Kitchen staff only needs dashboard and kitchen queue
+        if (role === 'kitchen_staff') return ['/admin/dashboard', '/admin/kitchen'].includes(item.href);
+        // Admin, administrator, and staff see all items
+        return role === 'admin' || role === 'administrator' || role === 'staff';
+    });
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
@@ -58,11 +70,11 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
+                <NavMain items={visibleNavItems} />
             </SidebarContent>
 
             <SidebarFooter>
-                {/* <NavFooter items={footerNavItems} className="mt-auto" /> */}
+                {/* Footer could include additional navigation or user info */}
                 <NavUser />
             </SidebarFooter>
         </Sidebar>

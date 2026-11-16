@@ -2,363 +2,407 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Branch;
+use App\Models\Category;
 use App\Models\Order;
 use App\Models\OrderItems;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Services\InventoryService;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
+use Inertia\Inertia;
 
 class OrderController extends Controller
 {
-  /**
-   * Display a listing of orders.
-   */
-  public function index(Request $request)
-  {
-    try {
-      $query = Order::with(['orderItems.product.photos', 'payment'])
-        ->orderBy('created_at', 'desc');
+    /**
+     * Display a listing of orders.
+     */
+    public function index(Request $request)
+    {
+        try {
+            $query = Order::with(['orderItems.product.photos', 'payment'])
+                ->orderBy('created_at', 'desc');
+            $user = $request->user();
+            if ($user->role !== 'administrator') {
+                $query->whereIn('branch_id', $user->branches()->select('branches.id'));
+            } elseif ($request->filled('branch_id')) {
+                abort_unless(Branch::whereKey($request->integer('branch_id'))->where('is_active', true)->exists(), 404);
+                $query->where('branch_id', $request->integer('branch_id'));
+            }
 
-      // Filter by status if provided
-      if ($request->has('status') && $request->status !== '') {
-        $query->where('status', $request->status);
-      }
+            // Filter by status if provided
+            if ($request->has('status') && $request->status !== '') {
+                $query->where('status', $request->status);
+            }
 
-      // Search by customer name or order ID
-      if ($request->has('search') && $request->search !== '') {
-        $search = $request->search;
-        $query->where(function ($q) use ($search) {
-          $q->where('customer_name', 'like', "%{$search}%")
-            ->orWhere('id', 'like', "%{$search}%");
-        });
-      }
+            // Search by customer name or order ID
+            if ($request->has('search') && $request->search !== '') {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('customer_name', 'like', "%{$search}%")
+                        ->orWhere('id', 'like', "%{$search}%");
+                });
+            }
 
-      $orders = $query->paginate(10)->through(function ($order) {
-        return [
-          'id' => $order->id,
-          'customer_name' => $order->customer_name,
-          'customer_phone' => null, // Not stored in database
-          'customer_email' => null, // Not stored in database
-          'total_amount' => $order->payment->amount ?? 0,
-          'status' => $order->status,
-          'order_type' => 'admin', // Since these are admin-created orders
-          'notes' => null, // Not stored in database
-          'created_at' => $order->created_at,
-          'order_items' => $order->orderItems->map(function ($item) {
+            $orders = $query->paginate(10)->through(function ($order) {
+                return [
+                    'id' => $order->id,
+                    'customer_name' => $order->customer_name,
+                    'customer_phone' => null, // Not stored in database
+                    'customer_email' => null, // Not stored in database
+                    'total_amount' => $order->payment->amount ?? 0,
+                    'status' => $order->status,
+                    'order_type' => 'admin', // Since these are admin-created orders
+                    'notes' => null, // Not stored in database
+                    'created_at' => $order->created_at,
+                    'order_items' => $order->orderItems->map(function ($item) {
+                        return [
+                            'id' => $item->id,
+                            'product' => [
+                                'id' => $item->product->id,
+                                'name' => $item->product->name,
+                                'photos' => $item->product->photos->map(function ($photo) {
+                                    return [
+                                        'id' => $photo->id,
+                                        'url' => $photo->url,
+                                    ];
+                                }),
+                            ],
+                            'quantity' => $item->quantity,
+                            'price' => $item->price,
+                            'subtotal' => $item->subtotal,
+                        ];
+                    }),
+                    'payment' => [
+                        'id' => $order->payment->id ?? 0,
+                        'payment_method' => $order->payment->payment_method ?? 'cash',
+                        'method' => $order->payment->payment_method ?? 'cash',
+                        'status' => $order->payment->status ?? 'completed',
+                        'amount' => $order->payment->amount ?? 0,
+                        'transaction_id' => $order->payment->transaction_id ?? '',
+                        'paid_at' => $order->payment->paid_at ?? null,
+                    ],
+                ];
+            });
+
+            $products = Product::with('photos')->get();
+
+            // Return JSON for AJAX requests (infinite scroll). Inertia visits also
+            // set X-Requested-With via axios, so exclude them explicitly or every
+            // Inertia navigation to this page would get raw JSON instead of a
+            // proper Inertia response.
+            if (! $request->header('X-Inertia') && ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest')) {
+                return response()->json([
+                    'orders' => $orders,
+                    'products' => $products,
+                    'filters' => $request->only(['status', 'search']),
+                ]);
+            }
+
+            return Inertia::render('admin/orders/index', [
+                'orders' => $orders,
+                'products' => $products,
+                'filters' => $request->only(['status', 'search']),
+            ]);
+        } catch (\Exception $e) {
+            report($e);
+            abort(500, 'Unable to load order history.');
+        }
+    }
+
+    /**
+     * Show the form for creating a new order.
+     */
+    public function create()
+    {
+        $user = request()->user();
+        abort_unless(in_array($user->role, ['administrator', 'branch_manager', 'cashier'], true), 403);
+        $branches = $user->role === 'administrator' ? Branch::where('is_active', true)->orderBy('name')->get() : $user->branches()->where('is_active', true)->orderBy('name')->get();
+        $selectedBranch = request()->integer('branch_id') ?: $branches->first()?->id;
+        abort_unless(! $selectedBranch || $branches->contains('id', $selectedBranch), 403);
+        $availability = DB::table('product_recipes')->leftJoin('inventory', function ($join) use ($selectedBranch) {
+            $join->on('product_recipes.ingredient_id', '=', 'inventory.ingredient_id')->where('inventory.branch_id', '=', $selectedBranch ?? 0);
+        })->select('product_recipes.product_id')->selectRaw('SUM(CASE WHEN inventory.id IS NULL OR inventory.quantity < product_recipes.quantity THEN 1 ELSE 0 END) as unavailable')
+            ->groupBy('product_recipes.product_id')->get()->keyBy('product_id');
+        $products = Product::with(['category:id,name', 'photos:id,product_id,url,is_primary'])->where('is_active', true)->orderBy('name')->get()->map(fn (Product $product) => [
+            'id' => $product->id, 'name' => $product->name, 'description' => $product->description,
+            'category' => $product->category?->name ?? 'Other', 'price' => (float) $product->price,
+            'available' => ! isset($availability[$product->id]) || (int) $availability[$product->id]->unavailable === 0,
+            'image' => $product->photos->firstWhere('is_primary', true)?->url ?? $product->photos->first()?->url,
+        ]);
+
+        return Inertia::render('admin/orders/create', [
+            'products' => $products, 'categories' => Category::where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'branches' => $branches, 'selectedBranch' => $selectedBranch, 'taxRate' => (float) config('pos.tax_rate'),
+        ]);
+    }
+
+    /**
+     * Store a newly created order in storage.
+     */
+    public function store(Request $request)
+    {
+        $request->validate([
+            'customer_name' => 'required|string|max:255',
+            'table_number' => 'required_if:service_type,dine_in|nullable|integer|min:1',
+            'status' => 'nullable|in:pending,completed,cancelled',
+            'branch_id' => 'nullable|exists:branches,id',
+            'service_type' => 'nullable|in:dine_in,takeout',
+            'notes' => 'nullable|string|max:1000',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.notes' => 'nullable|string|max:255',
+            'payment_method' => 'required|in:cash,digital,gcash,card,other',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            // Calculate total amount
+            $subtotalAmount = 0;
+            $validatedItems = [];
+
+            foreach ($request->items as $item) {
+                $product = Product::whereKey($item['product_id'])->where('is_active', true)->firstOrFail();
+                $subtotal = $product->price * $item['quantity'];
+                $subtotalAmount += $subtotal;
+
+                $validatedItems[] = [
+                    'product_id' => $product->id,
+                    'quantity' => $item['quantity'],
+                    'price' => $product->price,
+                    'subtotal' => $subtotal,
+                    'notes' => $item['notes'] ?? null,
+                ];
+            }
+
+            // Add tax
+            $taxAmount = $subtotalAmount * config('pos.tax_rate');
+            $totalAmount = $subtotalAmount + $taxAmount;
+
+            // Create order
+            $branchId = $request->input('branch_id');
+            $branchId ??= $request->user()->branches()->value('branches.id');
+            abort_unless(! $branchId || Branch::whereKey($branchId)->where('is_active', true)->exists(), 422, 'Selected branch is inactive.');
+            if ($request->user()->role !== 'administrator') {
+                abort_unless($request->user()->branches()->whereKey($branchId)->exists(), 403);
+            }
+            abort_unless(in_array($request->user()->role, ['administrator', 'branch_manager', 'cashier'], true), 403);
+            $order = Order::create([
+                'branch_id' => $branchId,
+                'order_number' => $this->generateOrderNumber(),
+                'created_by' => $request->user()->id,
+                'customer_name' => $request->customer_name,
+                'table_number' => $request->table_number ?? 0, // Default to 0 for admin orders
+                'status' => 'pending',
+                'service_type' => $request->service_type ?? 'takeout',
+                'notes' => $request->notes,
+            ]);
+            DB::table('order_status_histories')->insert([
+                'order_id' => $order->id, 'from_status' => null, 'to_status' => 'pending', 'user_id' => $request->user()->id,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            // Create order items
+            foreach ($validatedItems as $item) {
+                OrderItems::create([
+                    'order_id' => $order->id,
+                    'product_id' => $item['product_id'],
+                    'quantity' => $item['quantity'],
+                    'price' => $item['price'],
+                    'subtotal' => $item['subtotal'],
+                    'notes' => $item['notes'],
+                ]);
+            }
+
+            app(InventoryService::class)->deductForOrder($order);
+
+            // Create payment record
+            $payment = Payment::create([
+                'order_id' => $order->id,
+                'amount' => $totalAmount,
+                'payment_method' => $request->payment_method,
+                'status' => $request->payment_method === 'cash' ? 'completed' : 'pending',
+                'transaction_id' => 'POS-'.strtoupper(bin2hex(random_bytes(6))),
+                'paid_at' => $request->payment_method === 'cash' ? now() : null,
+            ]);
+
+            DB::commit();
+
+            // Return JSON response for AJAX requests
+            if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Order berhasil dibuat!',
+                    'order_id' => $order->id,
+                ]);
+            }
+
+            // Return Inertia response for regular requests
+            return redirect()->route('orders.index')->with('success', 'Order berhasil dibuat!');
+        } catch (\Exception $e) {
+            DB::rollback();
+
+            // Return JSON error for AJAX requests
+            if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to create order: '.$e->getMessage(),
+                    'errors' => ['general' => $e->getMessage()],
+                ], 422);
+            }
+
+            return redirect()->back()->withErrors(['error' => 'Failed to create order: '.$e->getMessage()]);
+        }
+    }
+
+    private function generateOrderNumber(): string
+    {
+        do {
+            $number = 'B-'.random_int(1000, 9999);
+        } while (Order::where('order_number', $number)->exists());
+
+        return $number;
+    }
+
+    /**
+     * Display the specified order.
+     */
+    public function show(Order $order)
+    {
+        $order->load(['orderItems.product.photos', 'payment']);
+
+        return Inertia::render('admin/orders/show', [
+            'order' => $order,
+            'printReceipt' => session('print_receipt', false),
+        ]);
+    }
+
+    /**
+     * Show the form for editing the specified order.
+     */
+    public function edit(Order $order)
+    {
+        $order->load(['orderItems.product', 'payment']);
+        $products = Product::with('photos')->get();
+
+        return Inertia::render('admin/orders/edit', [
+            'order' => $order,
+            'products' => $products,
+        ]);
+    }
+
+    /**
+     * Update the specified order in storage.
+     */
+    public function update(Request $request, Order $order)
+    {
+        $this->authorizeOrderBranch($request, $order);
+        $request->validate([
+            'customer_name' => 'required|string|max:255',
+        ]);
+
+        $order->update([
+            'customer_name' => $request->customer_name,
+        ]);
+
+        // Return JSON response for AJAX requests
+        if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+            return response()->json([
+                'success' => true,
+                'message' => 'Order berhasil diupdate!',
+                'order_id' => $order->id,
+            ]);
+        }
+
+        return redirect()->route('orders.index')
+            ->with('success', 'Order berhasil diupdate!');
+    }
+
+    /**
+     * Remove the specified order from storage.
+     */
+    public function destroy(Request $request, Order $order)
+    {
+        $this->authorizeOrderBranch($request, $order);
+        // Orders and their payment history are financial records. Use the cancellation
+        // workflow to void an order; never cascade-delete a transaction trail.
+        $message = 'Orders cannot be deleted. Submit a cancellation request instead.';
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => false, 'message' => $message], 422);
+        }
+
+        return back()->withErrors(['error' => $message]);
+    }
+
+    /**
+     * Print receipt for the order.
+     */
+    public function printReceipt(Request $request, Order $order)
+    {
+        $this->authorizeOrderBranch($request, $order);
+        $order->load(['orderItems.product', 'payment']);
+
+        // Prepare data for print endpoint
+        $items = $order->orderItems->map(function ($item) {
             return [
-              'id' => $item->id,
-              'product' => [
-                'id' => $item->product->id,
                 'name' => $item->product->name,
-                'photos' => $item->product->photos->map(function ($photo) {
-                  return [
-                    'id' => $photo->id,
-                    'url' => $photo->url
-                  ];
-                })
-              ],
-              'quantity' => $item->quantity,
-              'price' => $item->price,
-              'subtotal' => $item->subtotal
+                'quantity' => $item->quantity,
+                'price' => $item->price,
+                'subtotal' => $item->subtotal,
             ];
-          }),
-          'payment' => [
-            'id' => $order->payment->id ?? 0,
-            'payment_method' => $order->payment->payment_method ?? 'cash',
-            'method' => $order->payment->payment_method ?? 'cash',
-            'status' => $order->payment->status ?? 'completed',
-            'amount' => $order->payment->amount ?? 0,
-            'transaction_id' => $order->payment->transaction_id ?? '',
-            'paid_at' => $order->payment->paid_at ?? null
-          ]
+        });
+
+        $paymentMethod = $order->payment?->payment_method ?? $order->payment?->method ?? 'cash';
+
+        $printData = [
+            'customer_name' => $order->customer_name,
+            'customer_phone' => null,
+            'items' => $items,
+            'total_amount' => $order->total_amount,
+            'payment_method' => $paymentMethod,
+            'order_date' => $order->created_at->format('d/m/Y H:i'),
+            'order_id' => $order->id,
         ];
-      });
 
-      $products = Product::with('photos')->get();
+        // Redirect to print endpoint with query parameters
+        return redirect()->route('print.index', $printData);
+    }
 
-      // Return JSON for AJAX requests (infinite scroll). Inertia visits also
-      // set X-Requested-With via axios, so exclude them explicitly or every
-      // Inertia navigation to this page would get raw JSON instead of a
-      // proper Inertia response.
-      if (!$request->header('X-Inertia') && ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest')) {
-        return response()->json([
-          'orders' => $orders,
-          'products' => $products,
-          'filters' => $request->only(['status', 'search'])
+    /**
+     * Update order status.
+     */
+    public function updateStatus(Request $request, Order $order)
+    {
+        $this->authorizeOrderBranch($request, $order);
+        $request->validate([
+            'status' => 'required|in:preparing,ready',
         ]);
-      }
 
-      return Inertia::render('admin/orders/index', [
-        'orders' => $orders,
-        'products' => $products,
-        'filters' => $request->only(['status', 'search'])
-      ]);
-    } catch (\Exception $e) {
-      dd('Error: ' . $e->getMessage(), $e->getTraceAsString());
-    }
-  }
-  /**
-   * Show the form for creating a new order.
-   */
-  public function create()
-  {
-    // $products = Product::with('photos')->where('is_active', true)->get();
+        $allowed = ['pending' => 'preparing', 'preparing' => 'ready'];
+        abort_unless(($allowed[$order->status] ?? null) === $request->status, 422, 'Invalid order status transition.');
+        abort_unless(in_array($request->user()->role, ['administrator', 'branch_manager', 'kitchen_staff'], true), 403);
 
-    // return Inertia::render('admin/orders/create', [
-    //   'products' => $products
-    // ]);
-  }
+        DB::transaction(function () use ($request, $order): void {
+            $from = $order->status;
+            $order->update(['status' => $request->status]);
+            DB::table('order_status_histories')->insert([
+                'order_id' => $order->id, 'from_status' => $from, 'to_status' => $request->status,
+                'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        });
 
-  /**
-   * Store a newly created order in storage.
-   */
-  public function store(Request $request)
-  {
-    $request->validate([
-      'customer_name' => 'required|string|max:255',
-      'table_number' => 'nullable|integer|min:0',
-      'status' => 'nullable|in:pending,completed,cancelled',
-      'items' => 'required|array|min:1',
-      'items.*.product_id' => 'required|exists:products,id',
-      'items.*.quantity' => 'required|integer|min:1',
-      'payment_method' => 'required|in:cash,digital',
-    ]);
-
-    DB::beginTransaction();
-
-    try {
-      // Calculate total amount
-      $subtotalAmount = 0;
-      $validatedItems = [];
-
-      foreach ($request->items as $item) {
-        $product = Product::findOrFail($item['product_id']);
-        $subtotal = $product->price * $item['quantity'];
-        $subtotalAmount += $subtotal;
-
-        $validatedItems[] = [
-          'product_id' => $product->id,
-          'quantity' => $item['quantity'],
-          'price' => $product->price,
-          'subtotal' => $subtotal
-        ];
-      }
-
-      // Add tax
-      $taxAmount = $subtotalAmount * config('pos.tax_rate');
-      $totalAmount = $subtotalAmount + $taxAmount;
-
-      // Create order
-      $order = Order::create([
-        'customer_name' => $request->customer_name,
-        'table_number' => $request->table_number ?? 0, // Default to 0 for admin orders
-        'status' => $request->status ?? 'pending', // Order status from admin input, default pending
-      ]);
-
-      // Create order items
-      foreach ($validatedItems as $item) {
-        OrderItems::create([
-          'order_id' => $order->id,
-          'product_id' => $item['product_id'],
-          'quantity' => $item['quantity'],
-          'price' => $item['price'],
-          'subtotal' => $item['subtotal'],
+        return response()->json([
+            'success' => true,
+            'message' => 'Status order berhasil diupdate!',
         ]);
-      }
-
-      // Create payment record
-      $payment = Payment::create([
-        'order_id' => $order->id,
-        'amount' => $totalAmount,
-        'payment_method' => $request->payment_method,
-        'status' => 'completed', // Admin orders are automatically completed
-        'transaction_id' => 'ADMIN-' . time() . '-' . $order->id,
-        'paid_at' => now(),
-      ]);
-
-      DB::commit();
-
-      // Return JSON response for AJAX requests
-      if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
-        return response()->json([
-          'success' => true,
-          'message' => 'Order berhasil dibuat!',
-          'order_id' => $order->id
-        ]);
-      }
-
-      // Return Inertia response for regular requests
-      return redirect()->route('orders.index')->with('success', 'Order berhasil dibuat!');
-    } catch (\Exception $e) {
-      DB::rollback();
-
-      // Return JSON error for AJAX requests
-      if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
-        return response()->json([
-          'success' => false,
-          'message' => 'Failed to create order: ' . $e->getMessage(),
-          'errors' => ['general' => $e->getMessage()]
-        ], 422);
-      }
-
-      return redirect()->back()->withErrors(['error' => 'Failed to create order: ' . $e->getMessage()]);
-    }
-  }
-
-  /**
-   * Display the specified order.
-   */
-  public function show(Order $order)
-  {
-    $order->load(['orderItems.product.photos', 'payment']);
-
-    return Inertia::render('admin/orders/show', [
-      'order' => $order,
-      'printReceipt' => session('print_receipt', false)
-    ]);
-  }
-
-  /**
-   * Show the form for editing the specified order.
-   */
-  public function edit(Order $order)
-  {
-    $order->load(['orderItems.product', 'payment']);
-    $products = Product::with('photos')->get();
-
-    return Inertia::render('admin/orders/edit', [
-      'order' => $order,
-      'products' => $products
-    ]);
-  }
-
-  /**
-   * Update the specified order in storage.
-   */
-  public function update(Request $request, Order $order)
-  {
-    $request->validate([
-      'customer_name' => 'required|string|max:255',
-      'status' => 'required|in:pending,completed,cancelled',
-    ]);
-
-    $order->update([
-      'customer_name' => $request->customer_name,
-      'status' => $request->status,
-    ]);
-
-    // Return JSON response for AJAX requests
-    if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
-      return response()->json([
-        'success' => true,
-        'message' => 'Order berhasil diupdate!',
-        'order_id' => $order->id
-      ]);
     }
 
-    return redirect()->route('orders.index')
-      ->with('success', 'Order berhasil diupdate!');
-  }
-
-  /**
-   * Remove the specified order from storage.
-   */
-  public function destroy(Request $request, Order $order)
-  {
-    // Only allow deletion of cancelled orders
-    if ($order->status !== 'cancelled') {
-      return back()->withErrors(['error' => 'Hanya order yang dibatalkan yang bisa dihapus.']);
+    private function authorizeOrderBranch(Request $request, Order $order): void
+    {
+        abort_unless($request->user()->role === 'administrator' || $request->user()->branches()->whereKey($order->branch_id)->exists(), 403);
     }
-
-    DB::beginTransaction();
-
-    try {
-      // Delete order items
-      $order->orderItems()->delete();
-
-      // Delete payment record
-      $order->payment()->delete();
-
-      // Delete order
-      $order->delete();
-
-      DB::commit();
-
-      // Return JSON response for AJAX requests
-      if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
-        return response()->json([
-          'success' => true,
-          'message' => 'Order berhasil dihapus!'
-        ]);
-      }
-
-      return redirect()->route('orders.index')
-        ->with('success', 'Order berhasil dihapus!');
-    } catch (\Exception $e) {
-      DB::rollback();
-
-      // Return JSON error for AJAX requests
-      if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
-        return response()->json([
-          'success' => false,
-          'message' => 'Failed to delete order: ' . $e->getMessage(),
-          'errors' => ['general' => $e->getMessage()]
-        ], 422);
-      }
-
-      return back()->withErrors(['error' => 'Failed to delete order: ' . $e->getMessage()]);
-    }
-  }
-
-  /**
-   * Print receipt for the order.
-   */
-  public function printReceipt(Order $order)
-  {
-    $order->load(['orderItems.product', 'payment']);
-
-    // Prepare data for print endpoint
-    $items = $order->orderItems->map(function ($item) {
-      return [
-        'name' => $item->product->name,
-        'quantity' => $item->quantity,
-        'price' => $item->price,
-        'subtotal' => $item->subtotal
-      ];
-    });
-
-    $paymentMethod = $order->payment?->payment_method ?? $order->payment?->method ?? 'cash';
-
-    $printData = [
-      'customer_name' => $order->customer_name,
-      'customer_phone' => null,
-      'items' => $items,
-      'total_amount' => $order->total_amount,
-      'payment_method' => $paymentMethod,
-      'order_date' => $order->created_at->format('d/m/Y H:i'),
-      'order_id' => $order->id
-    ];
-
-    // Redirect to print endpoint with query parameters
-    return redirect()->route('print.index', $printData);
-  }
-
-  /**
-   * Update order status.
-   */
-  public function updateStatus(Request $request, Order $order)
-  {
-    $request->validate([
-      'status' => 'required|in:pending,completed,cancelled'
-    ]);
-
-    $order->update(['status' => $request->status]);
-
-    return response()->json([
-      'success' => true,
-      'message' => 'Status order berhasil diupdate!'
-    ]);
-  }
 }

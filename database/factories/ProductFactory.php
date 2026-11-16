@@ -5,23 +5,26 @@ namespace Database\Factories;
 use App\Models\Category;
 use App\Models\Product;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /**
  * @extends Factory<Product>
  */
 class ProductFactory extends Factory
 {
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
     public function definition(): array
     {
+        $name = ucfirst(fake()->unique()->words(3, true));
+        $price = fake()->numberBetween(100, 300);
+
         return [
-            'name' => ucfirst(fake()->unique()->words(3, true)),
+            'name' => $name,
+            'slug' => Str::slug($name) . '-' . Str::random(5),
             'category_id' => Category::factory(),
-            'price' => fake()->numberBetween(5000, 100000),
+            'price' => $price,
+            'base_price' => $price,
+            'is_active' => true,
+            'is_available' => true,
         ];
     }
 }

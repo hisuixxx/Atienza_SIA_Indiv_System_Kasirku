@@ -4,17 +4,31 @@ use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\OperationsController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PrintController;
 use App\Http\Controllers\ProductController;
 use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
-Route::get('/', [CustomerController::class, 'index'])->name('home');
+/*
+|--------------------------------------------------------------------------
+| Web Routes - BrewSync Coffee Shop Management & Ordering
+|--------------------------------------------------------------------------
+*/
+
+// Public Storefront & Customer Menu
+Route::get('/', function () {
+    return Inertia::render('customer/landing');
+})->name('home');
+
+Route::get('/menu', [CustomerController::class, 'index'])->name('menu');
+Route::get('/menu/{product:slug}', [CustomerController::class, 'show'])->name('menu.show');
 
 // Checkout routes
 Route::prefix('checkout')->group(function () {
     Route::get('/', [CheckoutController::class, 'index'])->name('checkout.index');
-    Route::post('/process', [CheckoutController::class, 'processCheckout'])->name('checkout.process');
+    Route::post('/', [CheckoutController::class, 'process'])->name('checkout.process');
     Route::get('/finish', [CheckoutController::class, 'paymentFinish'])->name('checkout.finish');
     Route::get('/unfinish', [CheckoutController::class, 'paymentUnfinish'])->name('checkout.unfinish');
     Route::get('/error', [CheckoutController::class, 'paymentError'])->name('checkout.error');
@@ -27,24 +41,54 @@ Route::prefix('order')->group(function () {
     Route::get('/{orderId}/check', [CheckoutController::class, 'checkOrderStatus'])->name('order.check');
 });
 
-Route::prefix('admin')->middleware(['auth', 'verified'])->group(function () {
+// Admin & Staff Operations
+Route::prefix('admin')->middleware(['auth', 'active', 'role:admin,administrator,staff,kitchen_staff'])->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('admin.dashboard');
 
     Route::post('print', [PrintController::class, 'index'])->name('print.index');
 
-    // Resource route for CategoryController
+    // Resource routes
     Route::resource('categories', CategoryController::class);
-
-    // Resource route for ProductController
     Route::resource('products', ProductController::class);
 
-    // Order routes (using modals, so only need index, store, update, destroy)
+    // Orders & POS Cashier routes
     Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
+    Route::get('orders/create', [OrderController::class, 'create'])->name('orders.create');
     Route::post('orders', [OrderController::class, 'store'])->name('orders.store');
     Route::put('orders/{order}', [OrderController::class, 'update'])->name('orders.update');
     Route::delete('orders/{order}', [OrderController::class, 'destroy'])->name('orders.destroy');
     Route::post('orders/{order}/update-status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
     Route::get('orders/{order}/print', [OrderController::class, 'printReceipt'])->name('orders.print');
+
+    // Kitchen Queue
+    Route::get('kitchen', [OperationsController::class, 'kitchen'])->name('admin.kitchen');
+    Route::patch('kitchen/{order}', [OperationsController::class, 'updateKitchen'])->name('admin.kitchen.update');
+
+    // Handoff
+    Route::get('handoff', [OperationsController::class, 'handoff'])->name('admin.handoff');
+    Route::post('handoff/{order}', [OperationsController::class, 'confirmHandoff'])->name('admin.handoff.confirm');
+
+    // Payments & Digital Ledger
+    Route::get('payments', [OperationsController::class, 'payments'])->name('admin.payments');
+    Route::post('payments/{payment}/reference', [OperationsController::class, 'submitPaymentReference'])->name('admin.payments.reference');
+    Route::post('payments/verifications/{verification}', [OperationsController::class, 'decideVerification'])->name('admin.payments.verification.decide');
+
+
+
+
+
+    // Reports & CSV Export
+    Route::get('reports', [OperationsController::class, 'reports'])->name('admin.reports');
+    Route::get('reports/export', [OperationsController::class, 'exportReports'])->name('admin.reports.export');
+
+    // Cancellations & Refunds
+    Route::get('refunds', [OperationsController::class, 'refunds'])->name('admin.refunds');
+    Route::post('orders/{order}/refund', [OperationsController::class, 'requestRefund'])->name('admin.orders.refund');
+    Route::post('orders/{order}/cancellation', [OperationsController::class, 'requestCancellation'])->name('admin.orders.cancellation');
+    Route::post('refunds/{refund}/review', [OperationsController::class, 'reviewRefund'])->name('admin.refunds.review');
+    Route::post('refunds/{refund}/process', [OperationsController::class, 'processRefund'])->name('admin.refunds.process');
+    Route::post('cancellations/{cancellation}/review', [OperationsController::class, 'reviewCancellation'])->name('admin.cancellations.review');
 });
+
 require __DIR__ . '/settings.php';
 require __DIR__ . '/auth.php';

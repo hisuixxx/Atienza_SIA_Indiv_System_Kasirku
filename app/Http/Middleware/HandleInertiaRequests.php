@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Branch;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -38,6 +39,12 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         [$message, $author] = str(Inspiring::quotes()->random())->explode('-');
+        $user = $request->user();
+        $branches = $user && $request->is('admin/*')
+            ? ($user->role === 'administrator' ? Branch::where('is_active', true)->orderBy('name')->get(['id', 'name', 'code']) : $user->branches()->where('is_active', true)->orderBy('name')->get(['branches.id', 'branches.name', 'branches.code']))
+            : collect();
+        $requestedBranch = $request->integer('branch_id');
+        $selectedBranch = $requestedBranch && $branches->contains('id', $requestedBranch) ? $requestedBranch : ($user?->role === 'administrator' ? null : $branches->first()?->id);
 
         return [
             ...parent::share($request),
@@ -46,6 +53,7 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+            'branchContext' => ['branches' => $branches, 'selectedBranch' => $selectedBranch],
             'ziggy' => fn (): array => [
                 ...(new Ziggy)->toArray(),
                 'location' => $request->url(),

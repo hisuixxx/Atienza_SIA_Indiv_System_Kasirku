@@ -88,10 +88,10 @@ test('admin can update order status', function () {
     $this->actingAs(User::factory()->create());
     $order = Order::factory()->create(['status' => 'pending']);
 
-    $response = $this->postJson("/admin/orders/{$order->id}/update-status", ['status' => 'completed']);
+    $response = $this->postJson("/admin/orders/{$order->id}/update-status", ['status' => 'preparing']);
 
     $response->assertOk();
-    expect($order->fresh()->status)->toBe('completed');
+    expect($order->fresh()->status)->toBe('preparing');
 });
 
 test('only cancelled orders can be deleted', function () {
@@ -104,12 +104,12 @@ test('only cancelled orders can be deleted', function () {
     $this->assertDatabaseHas('orders', ['id' => $pendingOrder->id]);
 });
 
-test('a cancelled order can be deleted', function () {
+test('cancelled orders remain available as financial records', function () {
     $this->actingAs(User::factory()->create());
     $order = Order::factory()->create(['status' => 'cancelled']);
 
     $response = $this->delete("/admin/orders/{$order->id}");
 
-    $response->assertRedirect(route('orders.index'));
-    $this->assertDatabaseMissing('orders', ['id' => $order->id]);
+    $response->assertSessionHasErrors('error');
+    $this->assertDatabaseHas('orders', ['id' => $order->id]);
 });

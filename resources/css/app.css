@@ -1,5 +1,19 @@
 @import 'tailwindcss';
 
+/* BrewSync café operations theme */
+.brew-page{--brew-ink:#38271f;--brew-brown:#76513d;--brew-muted:#8d7e73;min-height:100%;padding:30px clamp(18px,3vw,42px) 42px;background:#f7f4ef;color:var(--brew-ink)}
+.brew-page-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin:4px 0 25px}
+.brew-page-heading h1{font-family:Georgia,'Times New Roman',serif;font-size:clamp(28px,3vw,39px);font-weight:400;line-height:1.12;letter-spacing:-.04em;color:#38271f}
+.brew-page-heading p{margin-top:8px;color:#91847a;font-size:13px}
+.brew-overline{font-size:10px;font-weight:700;letter-spacing:.09em;color:#998579;text-transform:uppercase}
+.brew-metric,.brew-panel{border:1px solid #ece5dc;border-radius:13px;background:#fffefa;box-shadow:0 2px 7px rgb(73 52 39 / 3%)}
+.brew-metric{padding:17px 19px 18px}.brew-icon{display:grid;height:34px;width:34px;place-items:center;border-radius:10px}.brew-icon-green{background:#e9f1e9;color:#5e806b}.brew-icon-tan{background:#f3eae0;color:#896b55}.brew-icon-gold{background:#f8f0dc;color:#a5803b}.brew-icon-rust{background:#f2e4dc;color:#9a6348}
+.brew-panel{padding:19px 20px}.brew-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.brew-panel-heading h2{font-size:15px;font-weight:650;color:#49372d}.brew-panel-heading p{margin-top:4px;font-size:12px;color:#988b80}
+.brew-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 9px;font-size:10px;font-weight:650;line-height:1.3;text-transform:capitalize;white-space:nowrap}.brew-pill-green{background:#e8f0e8;color:#5d8068}.brew-pill-gold{background:#f8efd9;color:#99773c}.brew-pill-red{background:#f8e8e4;color:#a65f50}
+.brew-date,.brew-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid #e9e1d7;border-radius:8px;background:#fffefa;padding:9px 13px;color:#59463a;font-size:12px;font-weight:600}.brew-button{background:#805840;color:white;border-color:#805840}.brew-button:hover{background:#694631}.brew-text-link{display:inline-flex;align-items:center;gap:5px;color:#815b43;font-size:12px;font-weight:650}.brew-table{width:100%;border-collapse:collapse;text-align:left;font-size:12px}.brew-table thead{background:#f6f2ed;color:#93867b;font-size:9px;letter-spacing:.055em;text-transform:uppercase}.brew-table th{padding:10px 9px;font-weight:650;white-space:nowrap}.brew-table td{padding:12px 9px;border-bottom:1px solid #f0ebe5;color:#81766d;white-space:nowrap}.brew-table tbody tr:last-child td{border-bottom:0}.brew-empty{display:flex;min-height:150px;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:#a79588;font-size:12px}.brew-summary{display:flex;flex-wrap:wrap;gap:14px;border-top:1px solid #f0ebe5;margin-top:12px;padding-top:13px;color:#8d7e73;font-size:11px}.brew-summary span{display:inline-flex;align-items:center;gap:6px}
+.brew-control{min-height:36px;border:1px solid #e9e1d7;border-radius:8px;background:#fffefa;padding:7px 10px;color:#59463a;font-size:12px;outline:none}.brew-control:focus{border-color:#b99478;box-shadow:0 0 0 2px rgb(185 148 120 / 18%)}
+@media(max-width:700px){.brew-page{padding:22px 16px 32px}.brew-page-heading{align-items:flex-start;flex-direction:column}.brew-panel{padding:16px}.brew-table{min-width:590px}}
+
 @plugin 'tailwindcss-animate';
 
 @source '../views';
@@ -64,25 +78,25 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
+    --background: #f7f4ef;
+    --foreground: #38271f;
+    --card: #fffefa;
+    --card-foreground: #38271f;
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+    --primary: #805840;
+    --primary-foreground: #fffefa;
+    --secondary: #f1e9df;
+    --secondary-foreground: #49372d;
+    --muted: #f3eee8;
+    --muted-foreground: #81766d;
+    --accent: #f1e9df;
+    --accent-foreground: #49372d;
     --destructive: oklch(0.577 0.245 27.325);
     --destructive-foreground: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.87 0 0);
+    --border: #e8e0d7;
+    --input: #e8e0d7;
+    --ring: #b99478;
     --chart-1: #2a78d6;
     --chart-2: #008300;
     --chart-3: #e87ba4;
@@ -92,14 +106,14 @@
     --status-warning: #fab219;
     --status-critical: #d03b3b;
     --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.87 0 0);
+    --sidebar: #35231d;
+    --sidebar-foreground: #f4eee8;
+    --sidebar-primary: #8a634b;
+    --sidebar-primary-foreground: #fffefa;
+    --sidebar-accent: #4c362c;
+    --sidebar-accent-foreground: #fffefa;
+    --sidebar-border: #4c362c;
+    --sidebar-ring: #b99478;
 }
 
 .dark {

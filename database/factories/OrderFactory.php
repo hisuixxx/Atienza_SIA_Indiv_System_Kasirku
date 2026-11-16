@@ -10,14 +10,10 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  */
 class OrderFactory extends Factory
 {
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
     public function definition(): array
     {
         return [
+            'order_number' => 'B-' . fake()->unique()->numberBetween(1000, 9999),
             'table_number' => fake()->numberBetween(1, 20),
             'status' => fake()->randomElement(['pending', 'completed', 'cancelled']),
             'customer_name' => fake()->name(),

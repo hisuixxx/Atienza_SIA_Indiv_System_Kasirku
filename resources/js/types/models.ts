@@ -1,6 +1,8 @@
 export interface Category {
     id: number;
     name: string;
+    slug?: string;
+    description?: string | null;
     created_at: string;
     updated_at: string;
     products_count?: number;
@@ -15,21 +17,56 @@ export interface ProductPhoto {
     updated_at: string;
 }
 
+export interface CustomizationOption {
+    id: number;
+    product_customization_id: number;
+    name: string;
+    additional_price: number;
+    is_default: boolean;
+}
+
+export interface ProductCustomization {
+    id: number;
+    product_id: string;
+    name: string;
+    type: string;
+    is_required: boolean;
+    options?: CustomizationOption[];
+}
+
 export interface Product {
     id: string;
     name: string;
     category_id: number;
     price: number;
+    base_price?: number;
+    description?: string | null;
+    slug?: string;
+    is_available?: boolean;
+    is_active?: boolean;
+    is_featured?: boolean;
+    image_path?: string | null;
     created_at: string;
     updated_at: string;
     category?: Category;
     photos?: ProductPhoto[];
+    customizations?: ProductCustomization[];
+}
+
+export interface CartItemOption {
+    customization_id: number;
+    customization_name: string;
+    option_id: number;
+    option_name: string;
+    additional_price: number;
 }
 
 export interface CartItem {
     product: Product;
     quantity: number;
     notes?: string;
+    selected_options?: CartItemOption[];
+    unit_price?: number;
 }
 
 export interface OrderItem {
