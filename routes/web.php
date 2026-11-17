@@ -42,7 +42,7 @@ Route::prefix('order')->group(function () {
 });
 
 // Admin & Staff Operations
-Route::prefix('admin')->middleware(['auth', 'active', 'role:admin,administrator,staff,kitchen_staff'])->group(function () {
+Route::prefix('admin')->middleware(['auth', 'active', 'role:admin,staff,kitchen'])->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('admin.dashboard');
 
     Route::post('print', [PrintController::class, 'index'])->name('print.index');
@@ -74,6 +74,13 @@ Route::prefix('admin')->middleware(['auth', 'active', 'role:admin,administrator,
     Route::post('payments/verifications/{verification}', [OperationsController::class, 'decideVerification'])->name('admin.payments.verification.decide');
 
 
+    // User Management (Admin only)
+    Route::get('users', [App\Http\Controllers\Admin\UserController::class, 'index'])->name('admin.users.index');
+    Route::post('users', [App\Http\Controllers\Admin\UserController::class, 'store'])->name('admin.users.store');
+    Route::put('users/{user}', [App\Http\Controllers\Admin\UserController::class, 'update'])->name('admin.users.update');
+    Route::post('users/{user}/toggle-status', [App\Http\Controllers\Admin\UserController::class, 'toggleStatus'])->name('admin.users.toggle-status');
+    Route::post('users/{user}/reset-password', [App\Http\Controllers\Admin\UserController::class, 'resetPassword'])->name('admin.users.reset-password');
+    Route::delete('users/{user}', [App\Http\Controllers\Admin\UserController::class, 'destroy'])->name('admin.users.destroy');
 
 
 
