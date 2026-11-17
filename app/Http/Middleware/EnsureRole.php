@@ -8,6 +8,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureRole
 {
+   /**
+     * Handle an incoming request.
+     * Accepts one or more roles: admin, staff, kitchen, customer
+     */
     public function handle(Request $request, Closure $next, string ...$roles): Response
     {
         if (!$request->user()) {
@@ -23,16 +27,12 @@ class EnsureRole
         }
 
         $userRole = $request->user()->role;
-        $mappedRoles = match ($userRole) {
-            'administrator', 'admin' => ['admin', 'administrator'],
-            'staff', 'cashier', 'kitchen_staff', 'inventory_staff', 'branch_manager' => ['staff', 'cashier', 'kitchen_staff', 'inventory_staff', 'branch_manager', $userRole],
-            default => [$userRole],
-        };
 
-        if (empty(array_intersect($mappedRoles, $roles))) {
+        // Strict role matching – no legacy aliases
+        if (!in_array($userRole, $roles, true)) {
             abort(403, 'Unauthorized access. You do not have permission to view this resource.');
         }
 
         return $next($request);
     }
-}
+} 
