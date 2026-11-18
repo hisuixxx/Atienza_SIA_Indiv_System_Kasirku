@@ -85,6 +85,52 @@ test('admin can create a cash order with correct tax calculation', function () {
     expect((float) $order->orderItems->first()->subtotal)->toBe((float) $subtotal);
 });
 
+test('assigned staff can create dine-in and take-out cash orders with multiple items and receipt data', function () {
+    $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+    $staff->branches()->attach($branch->id);
+    $latte = Product::factory()->create(['name' => 'House Latte', 'price' => 120]);
+    $pastry = Product::factory()->create(['name' => 'Croissant', 'price' => 80]);
+
+    $this->actingAs($staff)->postJson('/admin/orders', [
+        'customer_name' => 'Dine-in Guest',
+        'branch_id' => $branch->id,
+        'service_type' => 'dine_in',
+        'table_number' => 4,
+        'payment_method' => 'cash',
+        'items' => [
+            ['product_id' => $latte->id, 'quantity' => 2],
+            ['product_id' => $pastry->id, 'quantity' => 1],
+        ],
+    ])->assertOk()->assertJson(['success' => true]);
+
+    $dineInOrder = Order::where('customer_name', 'Dine-in Guest')->firstOrFail();
+    expect($dineInOrder->service_type)->toBe('dine_in')
+        ->and($dineInOrder->table_number)->toBe(4)
+        ->and($dineInOrder->orderItems)->toHaveCount(2)
+        ->and($dineInOrder->payment->status)->toBe('completed');
+
+    $receiptResponse = $this->get(route('admin.orders.print', $dineInOrder));
+    $receiptResponse->assertRedirect();
+    expect($receiptResponse->headers->get('Location'))->toContain('order_id='.$dineInOrder->id);
+
+    $this->postJson('/admin/orders', [
+        'customer_name' => 'Take-out Guest',
+        'branch_id' => $branch->id,
+        'service_type' => 'takeout',
+        'payment_method' => 'cash',
+        'items' => [
+            ['product_id' => $latte->id, 'quantity' => 1],
+            ['product_id' => $pastry->id, 'quantity' => 2],
+        ],
+    ])->assertOk()->assertJson(['success' => true]);
+
+    $takeOutOrder = Order::where('customer_name', 'Take-out Guest')->firstOrFail();
+    expect($takeOutOrder->service_type)->toBe('takeout')
+        ->and($takeOutOrder->orderItems)->toHaveCount(2)
+        ->and($takeOutOrder->payment->payment_method)->toBe('cash');
+});
+
 test('POS rejects a product unavailable at the submitted branch', function () {
     $this->actingAs(User::factory()->admin()->create());
     $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);

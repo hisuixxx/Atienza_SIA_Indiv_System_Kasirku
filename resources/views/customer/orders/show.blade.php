@@ -47,8 +47,13 @@
                 </h5>
 
                 @php
-                    $statusOrder = ['pending', 'confirmed', 'preparing', $order->order_type === 'delivery' ? 'out_for_delivery' : 'ready_for_pickup', 'completed'];
-                    $currentIndex = array_search($order->order_status, $statusOrder);
+                    $statusOrder = ['pending', 'confirmed', 'preparing', 'ready'];
+                    if ($order->order_type === 'delivery') {
+                        $statusOrder[] = 'out_for_delivery';
+                    }
+                    $statusOrder[] = 'completed';
+                    $currentStatus = $order->order_status === 'ready_for_pickup' ? 'ready' : $order->order_status;
+                    $currentIndex = array_search($currentStatus, $statusOrder);
                     if ($currentIndex === false && $order->order_status === 'cancelled') {
                         $currentIndex = -1;
                     }

@@ -13,7 +13,7 @@ use App\Http\Controllers\PrintController;
 use App\Http\Controllers\ProductController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\UserController as AdminUserController;
 
 /*
 |--------------------------------------------------------------------------
@@ -88,6 +88,8 @@ Route::prefix('admin')
 
         // Reports
         Route::get('reports', [OperationsController::class, 'reports'])->name('admin.reports');
+        Route::get('reports/daily-closing/{dailyClosingReport}', [OperationsController::class, 'showDailyClosing'])->name('admin.reports.daily-closing.show');
+        Route::post('reports/daily-closing', [OperationsController::class, 'generateDailyClosing'])->name('admin.reports.daily-closing.generate');
         Route::get('reports/export', [OperationsController::class, 'exportReports'])->name('admin.reports.export');
     });
 
@@ -113,6 +115,7 @@ Route::prefix('admin')
 
         // Handoff / Pickup confirmation
         Route::get('handoff', [OperationsController::class, 'handoff'])->name('admin.handoff');
+        Route::post('handoff/{order}/dispatch', [OperationsController::class, 'dispatchDelivery'])->name('admin.handoff.dispatch');
         Route::post('handoff/{order}', [OperationsController::class, 'confirmHandoff'])->name('admin.handoff.confirm');
 
         // Cancellations & Refunds

@@ -143,6 +143,34 @@ class CheckoutAndOrdersTest extends TestCase
         $response->assertRedirect(route('orders.show', $order->order_number));
     }
 
+    public function test_customer_can_add_update_and_remove_cart_items(): void
+    {
+        $user = User::factory()->create();
+        $product = Product::factory()->create(['base_price' => 120.00, 'is_available' => true]);
+        $this->actingAs($user);
+
+        $this->post(route('cart.add', $product), [
+            'quantity' => 2,
+            'special_instructions' => 'Less ice',
+        ])->assertRedirect(route('cart.index'));
+
+        $cartItem = CartItem::whereHas('cart', fn ($query) => $query->where('user_id', $user->id))->firstOrFail();
+        $this->assertDatabaseHas('cart_items', [
+            'id' => $cartItem->id,
+            'quantity' => 2,
+            'item_subtotal' => 240.00,
+        ]);
+
+        $this->patch(route('cart.update', $cartItem), ['action' => 'increase'])->assertRedirect();
+        $this->assertDatabaseHas('cart_items', ['id' => $cartItem->id, 'quantity' => 3, 'item_subtotal' => 360.00]);
+
+        $this->patch(route('cart.update', $cartItem), ['action' => 'decrease'])->assertRedirect();
+        $this->assertDatabaseHas('cart_items', ['id' => $cartItem->id, 'quantity' => 2, 'item_subtotal' => 240.00]);
+
+        $this->delete(route('cart.destroy', $cartItem))->assertRedirect();
+        $this->assertDatabaseMissing('cart_items', ['id' => $cartItem->id]);
+    }
+
     public function test_customer_order_is_associated_with_the_selected_branch(): void
     {
         $user = User::factory()->create();

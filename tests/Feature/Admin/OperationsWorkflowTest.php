@@ -143,14 +143,54 @@ test('canonical staff can create POS orders only for an assigned active branch',
 
 test('handoff completes only paid ready orders and records the employee', function () {
     $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
-    $cashier = User::factory()->create(['role' => 'cashier']);
-    $cashier->branches()->attach($branch->id);
+    $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+    $staff->branches()->attach($branch->id);
     $order = Order::factory()->create(['branch_id' => $branch->id, 'status' => 'ready']);
-    $payment = Payment::factory()->create(['order_id' => $order->id, 'status' => 'completed']);
+    Payment::factory()->create(['order_id' => $order->id, 'status' => 'completed']);
 
-    $this->actingAs($cashier)->post(route('admin.handoff.confirm', $order))->assertRedirect();
+    $this->actingAs($staff)->post(route('admin.handoff.confirm', $order))->assertRedirect();
     expect($order->fresh()->status)->toBe('completed');
-    $this->assertDatabaseHas('handoffs', ['order_id' => $order->id, 'user_id' => $cashier->id]);
+    expect($order->fresh()->order_status)->toBe('completed');
+    $this->assertDatabaseHas('handoffs', ['order_id' => $order->id, 'user_id' => $staff->id]);
+});
+
+test('assigned staff dispatches and confirms a paid delivery order through completion', function () {
+    $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+    $staff->branches()->attach($branch->id);
+    $customer = User::factory()->create(['role' => User::ROLE_CUSTOMER]);
+    $order = Order::factory()->create([
+        'branch_id' => $branch->id,
+        'user_id' => $customer->id,
+        'order_type' => 'delivery',
+        'status' => 'ready',
+        'order_status' => 'ready',
+    ]);
+    Payment::factory()->create(['order_id' => $order->id, 'status' => 'completed']);
+
+    $this->actingAs($customer)->get(route('orders.show', $order->order_number))->assertSee('Ready for Dispatch');
+
+    $this->actingAs($staff)->post(route('admin.handoff.confirm', $order))->assertStatus(422);
+    $this->actingAs($staff)->post(route('admin.handoff.dispatch', $order))->assertRedirect();
+    expect($order->fresh()->status)->toBe('out_for_delivery')
+        ->and($order->fresh()->order_status)->toBe('out_for_delivery');
+    $this->assertDatabaseHas('order_status_histories', [
+        'order_id' => $order->id,
+        'from_status' => 'ready',
+        'to_status' => 'out_for_delivery',
+        'user_id' => $staff->id,
+    ]);
+    $this->actingAs($customer)->get(route('orders.show', $order->order_number))->assertSee('Out for Delivery');
+
+    $this->actingAs($staff);
+    $this->post(route('admin.handoff.confirm', $order))->assertRedirect();
+    expect($order->fresh()->status)->toBe('completed')
+        ->and($order->fresh()->order_status)->toBe('completed');
+    $this->assertDatabaseHas('handoffs', [
+        'order_id' => $order->id,
+        'user_id' => $staff->id,
+        'notes' => 'Delivery confirmed.',
+    ]);
 });
 
 test('orders do not depend on recipe or inventory records and inventory management is disabled', function () {

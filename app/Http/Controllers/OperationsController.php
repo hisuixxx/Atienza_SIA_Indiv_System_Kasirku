@@ -3,11 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Branch;
+use App\Models\DailyClosingReport;
 use App\Models\Notification;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
 use App\Services\OrderStatusService;
+use App\Services\SalesReportService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -76,7 +79,7 @@ class OperationsController extends Controller
     public function handoff(Request $request)
     {
         [$branches, $selectedBranch] = $this->branchData($request);
-        $orders = $this->scopedOrders($request)->where('status', 'ready')->whereHas('payment', fn ($q) => $q->where('status', 'completed'))->oldest()->get();
+        $orders = $this->scopedOrders($request)->whereIn('status', ['ready', 'out_for_delivery'])->whereHas('payment', fn ($q) => $q->where('status', 'completed'))->oldest()->get();
 
         return Inertia::render('admin/operations/index', ['module' => 'handoff', 'title' => 'Order handoff', 'branches' => $branches, 'selectedBranch' => $selectedBranch, 'orders' => $this->serializeOrders($orders)]);
     }
@@ -139,116 +142,160 @@ class OperationsController extends Controller
         return back()->with('success', 'Branch settings and employee access saved.');
     }
 
-    public function reports(Request $request)
+    public function reports(Request $request, SalesReportService $salesReports)
     {
         [$branches, $selectedBranch] = $this->branchData($request);
-        $filters = $request->validate([
-            'start_date' => 'nullable|date', 'end_date' => 'nullable|date|after_or_equal:start_date',
-            'payment_method' => 'nullable|string|max:40',
+        [$filters, $range] = $this->validatedReportRange($request, $salesReports);
+        $report = $salesReports->report(
+            $range['start'],
+            $range['end'],
+            $selectedBranch,
+            $filters['payment_method'] ?? null,
+            $filters['order_status'] ?? null
+        );
+        $closingReports = DailyClosingReport::query()
+            ->with(['branch', 'generatedBy'])
+            ->when($selectedBranch, fn ($query) => $query->where('branch_id', $selectedBranch))
+            ->whereDate('closing_date', '<=', today())
+            ->orderByDesc('closing_date')
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (DailyClosingReport $closing) => $this->serializeClosingReport($closing));
+
+        return Inertia::render('admin/operations/index', [
+            'module' => 'reports',
+            'title' => 'Sales reports',
+            'branches' => $branches,
+            'selectedBranch' => $selectedBranch,
+            'filters' => $filters + [
+                'start_date' => $range['start']->toDateString(),
+                'end_date' => $range['end']->toDateString(),
+            ],
+            'range' => [
+                'start_date' => $range['start']->toDateString(),
+                'end_date' => $range['end']->toDateString(),
+            ],
+            'summary' => $report['summary'],
+            'breakdown' => $report['breakdown'],
+            'salesRows' => $report['sales_rows'],
+            'refundRows' => $report['refund_rows'],
+            'salesTrend' => $report['sales_trend'],
+            'orderStatuses' => $report['order_statuses'],
+            'topProducts' => $report['top_products'],
+            'branchComparison' => $report['branch_comparison'],
+            'closingReports' => $closingReports,
         ]);
-        if (empty($filters['start_date']) && empty($filters['end_date'])) {
-            $filters['start_date'] = today()->toDateString();
-            $filters['end_date'] = today()->toDateString();
-        }
-        $ordersQuery = $this->scopedOrders($request)->whereHas('payment', function ($query) use ($filters): void {
-            $query->where('status', 'completed');
-            if (! empty($filters['payment_method'])) {
-                $query->where('payment_method', $filters['payment_method']);
-            }
-            if (! empty($filters['start_date'])) {
-                $query->whereDate('paid_at', '>=', $filters['start_date']);
-            }
-            if (! empty($filters['end_date'])) {
-                $query->whereDate('paid_at', '<=', $filters['end_date']);
-            }
-            if (empty($filters['start_date']) && empty($filters['end_date'])) {
-                $query->whereDate('paid_at', today());
-            }
-        });
-        $orders = $ordersQuery->get();
-        $gross = (float) $orders->sum(fn (Order $order) => $order->payment?->amount ?? 0);
-        $refundQuery = DB::table('refunds')->join('payments', 'refunds.payment_id', '=', 'payments.id')->join('orders', 'payments.order_id', '=', 'orders.id')->where('refunds.status', 'processed_manual');
-        if ($selectedBranch) {
-            $refundQuery->where('orders.branch_id', $selectedBranch);
-        } elseif (! $this->isAdministrator($request->user())) {
-            $refundQuery->whereIn('orders.branch_id', $branches->modelKeys());
-        }
-        if (! empty($filters['start_date'])) {
-            $refundQuery->whereDate('refunds.processed_at', '>=', $filters['start_date']);
-        }
-        if (! empty($filters['end_date'])) {
-            $refundQuery->whereDate('refunds.processed_at', '<=', $filters['end_date']);
-        }
-        if (! empty($filters['payment_method'])) {
-            $refundQuery->where('payments.payment_method', $filters['payment_method']);
-        }
-        $refundTotal = (float) $refundQuery->sum('refunds.amount');
-        $refundByMethod = (clone $refundQuery)->select('payments.payment_method', DB::raw('SUM(refunds.amount) as amount'))->groupBy('payments.payment_method')->pluck('amount', 'payments.payment_method');
-        $groupedOrders = $orders->groupBy(fn (Order $order) => $order->payment?->payment_method ?? 'other');
-        $methods = collect($groupedOrders->keys())->merge($refundByMethod->keys())->unique()->values();
-        $rows = $methods->map(function ($method) use ($groupedOrders, $refundByMethod) {
-            $group = $groupedOrders->get($method, collect());
-            $amount = (float) $group->sum(fn ($order) => $order->payment?->amount ?? 0);
-            $refunds = (float) ($refundByMethod[$method] ?? 0);
-
-            return ['method' => $method, 'count' => $group->count(), 'amount' => $amount, 'refunds' => $refunds, 'net' => $amount - $refunds];
-        });
-
-        return Inertia::render('admin/operations/index', ['module' => 'reports', 'title' => 'Sales reports', 'branches' => $branches, 'selectedBranch' => $selectedBranch, 'filters' => $filters, 'summary' => ['gross' => $gross, 'refunds' => $refundTotal, 'net' => $gross - $refundTotal, 'orders' => $orders->count(), 'average' => $orders->count() ? $gross / $orders->count() : 0], 'breakdown' => $rows]);
     }
 
-    public function exportReports(Request $request)
+    public function exportReports(Request $request, SalesReportService $salesReports)
     {
-        $filters = $request->validate(['start_date' => 'nullable|date', 'end_date' => 'nullable|date|after_or_equal:start_date', 'payment_method' => 'nullable|string|max:40']);
-        if (empty($filters['start_date']) && empty($filters['end_date'])) {
-            $filters['start_date'] = today()->toDateString();
-            $filters['end_date'] = today()->toDateString();
-        }
-        $query = $this->scopedOrders($request)->whereHas('payment', function ($payment) use ($filters): void {
-            $payment->where('status', 'completed');
-            if (! empty($filters['payment_method'])) {
-                $payment->where('payment_method', $filters['payment_method']);
-            }
-            if (! empty($filters['start_date'])) {
-                $payment->whereDate('paid_at', '>=', $filters['start_date']);
-            }
-            if (! empty($filters['end_date'])) {
-                $payment->whereDate('paid_at', '<=', $filters['end_date']);
-            }
-            if (empty($filters['start_date']) && empty($filters['end_date'])) {
-                $payment->whereDate('paid_at', today());
-            }
-        });
-        $orders = $query->get();
-        $refundQuery = DB::table('refunds')->join('payments', 'refunds.payment_id', '=', 'payments.id')->join('orders', 'payments.order_id', '=', 'orders.id')->leftJoin('branches', 'orders.branch_id', '=', 'branches.id')->where('refunds.status', 'processed_manual');
-        [$branches, $branchId] = $this->branchData($request);
-        if ($branchId) {
-            $refundQuery->where('orders.branch_id', $branchId);
-        } elseif (! $this->isAdministrator($request->user())) {
-            $refundQuery->whereIn('orders.branch_id', $branches->modelKeys());
-        }
-        if (! empty($filters['start_date'])) {
-            $refundQuery->whereDate('refunds.processed_at', '>=', $filters['start_date']);
-        }
-        if (! empty($filters['end_date'])) {
-            $refundQuery->whereDate('refunds.processed_at', '<=', $filters['end_date']);
-        }
-        if (! empty($filters['payment_method'])) {
-            $refundQuery->where('payments.payment_method', $filters['payment_method']);
-        }
-        $refunds = $refundQuery->get(['refunds.*', 'payments.payment_method', 'orders.order_number', 'orders.customer_name', 'branches.name as branch_name']);
+        [$branches, $selectedBranch] = $this->branchData($request);
+        [$filters, $range] = $this->validatedReportRange($request, $salesReports);
+        $report = $salesReports->report(
+            $range['start'],
+            $range['end'],
+            $selectedBranch,
+            $filters['payment_method'] ?? null,
+            $filters['order_status'] ?? null
+        );
 
-        return response()->streamDownload(function () use ($orders, $refunds): void {
+        return response()->streamDownload(function () use ($report): void {
             $stream = fopen('php://output', 'w');
-            fputcsv($stream, ['Order', 'Date', 'Branch', 'Customer', 'Payment method', 'Amount', 'Status']);
-            foreach ($orders as $order) {
-                fputcsv($stream, [$order->order_number ?? '#'.$order->id, $order->payment?->paid_at, $order->branch?->name, $order->customer_name, $order->payment?->payment_method, $order->payment?->amount, $order->status]);
+            fputcsv($stream, ['Type', 'Order', 'Date', 'Branch', 'Customer', 'Payment method', 'Amount', 'Payment status', 'Order status', 'Reason']);
+            foreach ($report['sales_rows'] as $sale) {
+                fputcsv($stream, ['Sale', $sale['order_number'], $sale['date'], $sale['branch'], $sale['customer'], $sale['method'], $sale['amount'], $sale['payment_status'], $sale['order_status'], '']);
             }
-            foreach ($refunds as $refund) {
-                fputcsv($stream, ['Refund '.$refund->order_number, $refund->processed_at, $refund->branch_name, $refund->customer_name, $refund->payment_method, -$refund->amount, 'processed_manual']);
+            foreach ($report['refund_rows'] as $refund) {
+                fputcsv($stream, ['Refund', $refund['order_number'], $refund['date'], $refund['branch'], $refund['customer'], $refund['method'], -$refund['amount'], 'processed_manual', '', $refund['reason']]);
             }
             fclose($stream);
         }, 'brewsync-sales-report.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    public function showDailyClosing(Request $request, DailyClosingReport $dailyClosingReport)
+    {
+        abort_unless($this->isAdministrator($request->user()), 403);
+        $dailyClosingReport->load(['branch', 'generatedBy']);
+
+        return Inertia::render('admin/operations/index', [
+            'module' => 'closing-detail',
+            'title' => 'Daily closing details',
+            'branches' => Branch::query()->orderBy('name')->get(),
+            'selectedBranch' => $dailyClosingReport->branch_id,
+            'closingReport' => $this->serializeClosingReport($dailyClosingReport),
+        ]);
+    }
+
+    public function generateDailyClosing(Request $request, SalesReportService $salesReports)
+    {
+        abort_unless($this->isAdministrator($request->user()), 403);
+        $data = $request->validate([
+            'closing_date' => 'required|date|before_or_equal:today',
+            'branch_id' => 'nullable|integer|exists:branches,id',
+        ]);
+        $date = CarbonImmutable::parse($data['closing_date']);
+        $branches = Branch::query()
+            ->when($data['branch_id'] ?? null, fn ($query, $branchId) => $query->whereKey($branchId))
+            ->orderBy('id')
+            ->get();
+
+        abort_if($branches->isEmpty(), 422, 'No branches are available for this closing report.');
+
+        DB::transaction(function () use ($branches, $date, $salesReports, $request): void {
+            foreach ($branches as $branch) {
+                $salesReports->generateClosingReport($branch, $date, $request->user());
+            }
+        });
+
+        return redirect()->route('admin.reports', [
+            'period' => 'daily',
+            'date' => $date->toDateString(),
+            ...($data['branch_id'] ? ['branch_id' => $data['branch_id']] : []),
+        ])->with('success', 'Daily closing report generated for '.$date->toDateString().'.');
+    }
+
+    private function validatedReportRange(Request $request, SalesReportService $salesReports): array
+    {
+        if (! $request->filled('period') && ($request->filled('start_date') || $request->filled('end_date'))) {
+            $request->merge(['period' => 'custom']);
+        }
+
+        $filters = $request->validate([
+            'period' => 'nullable|in:daily,weekly,monthly,custom',
+            'date' => 'nullable|date',
+            'start_date' => 'nullable|required_if:period,custom|date',
+            'end_date' => 'nullable|required_if:period,custom|date|after_or_equal:start_date',
+            'payment_method' => 'nullable|string|max:40',
+            'order_status' => 'nullable|in:pending,confirmed,preparing,ready,ready_for_pickup,out_for_delivery,completed,cancelled',
+        ]);
+        $period = $filters['period'] ?? 'daily';
+        $range = $salesReports->resolveRange($period, $filters['date'] ?? null, $filters['start_date'] ?? null, $filters['end_date'] ?? null);
+        $filters['period'] = $period;
+        $filters['date'] = $range['date'];
+
+        return [$filters, $range];
+    }
+
+    private function serializeClosingReport(DailyClosingReport $report): array
+    {
+        return [
+            'id' => $report->id,
+            'branch_id' => $report->branch_id,
+            'branch' => $report->branch?->name ?? 'Unknown branch',
+            'closing_date' => CarbonImmutable::parse($report->closing_date)->toDateString(),
+            'total_orders' => (int) $report->total_orders,
+            'completed_orders' => (int) $report->completed_orders,
+            'cancelled_orders' => (int) $report->cancelled_orders,
+            'cash_sales' => (float) $report->cash_sales,
+            'gcash_sales' => (float) $report->gcash_sales,
+            'other_sales' => (float) $report->other_sales,
+            'gross_sales' => (float) $report->gross_sales,
+            'refund_total' => (float) $report->refund_total,
+            'net_sales' => (float) $report->net_sales,
+            'generated_by' => $report->generatedBy?->name,
+            'generated_at' => $report->generated_at,
+        ];
     }
 
     public function refunds(Request $request)
@@ -289,24 +336,43 @@ class OperationsController extends Controller
 
     public function confirmHandoff(Request $request, Order $order)
     {
-        $this->authorizeRoles($request, ['administrator', 'branch_manager', 'cashier']);
+        $this->authorizeRoles($request, ['admin', 'staff', 'administrator', 'branch_manager', 'cashier']);
         $this->authorizeBranch($request, $order);
-        abort_unless($order->status === 'ready' && $order->payment?->status === 'completed', 422, 'Order must be ready and paid before handoff.');
+        $isDelivery = $order->order_type === 'delivery';
+        $requiredStatus = $isDelivery ? Order::STATUS_OUT_FOR_DELIVERY : Order::STATUS_READY;
+        abort_unless($order->status === $requiredStatus && $order->payment?->status === 'completed', 422, $isDelivery ? 'Delivery must be dispatched and paid before confirmation.' : 'Order must be ready and paid before pickup.');
 
-        DB::transaction(function () use ($request, $order): void {
+        DB::transaction(function () use ($request, $order, $requiredStatus, $isDelivery): void {
             $lockedOrder = Order::lockForUpdate()->findOrFail($order->id);
-            abort_unless($lockedOrder->status === 'ready', 422, 'Only ready orders can be handed off.');
+            abort_unless($lockedOrder->status === $requiredStatus, 422, 'This order is not ready for handoff confirmation.');
             app(OrderStatusService::class)->transition($lockedOrder, Order::STATUS_COMPLETED, $request->user());
             DB::table('handoffs')->insert([
                 'order_id' => $order->id,
                 'user_id' => $request->user()->id,
-                'notes' => 'Pickup confirmed.',
+                'notes' => $isDelivery ? 'Delivery confirmed.' : 'Pickup confirmed.',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
         });
 
-        return back()->with('success', 'Pickup confirmed.');
+        return back()->with('success', $isDelivery ? 'Delivery confirmed.' : 'Pickup confirmed.');
+    }
+
+    public function dispatchDelivery(Request $request, Order $order)
+    {
+        $this->authorizeRoles($request, ['admin', 'staff', 'administrator', 'branch_manager', 'cashier']);
+        $this->authorizeBranch($request, $order);
+        abort_unless($order->order_type === 'delivery' && $order->status === Order::STATUS_READY && $order->payment?->status === 'completed', 422, 'Only paid, ready delivery orders can be dispatched.');
+
+        DB::transaction(function () use ($request, $order): void {
+            $lockedOrder = Order::lockForUpdate()->findOrFail($order->id);
+            abort_unless($lockedOrder->order_type === 'delivery'
+                && $lockedOrder->status === Order::STATUS_READY
+                && $lockedOrder->payment?->status === 'completed', 422, 'This delivery order is no longer ready for dispatch.');
+            app(OrderStatusService::class)->transition($lockedOrder, Order::STATUS_OUT_FOR_DELIVERY, $request->user());
+        });
+
+        return back()->with('success', 'Delivery dispatched.');
     }
 
     public function requestCancellation(Request $request, Order $order)
@@ -552,6 +618,7 @@ class OperationsController extends Controller
         return $orders->map(fn (Order $order) => [
             'id' => $order->id, 'number' => $order->order_number ?? '#'.$order->id, 'customer' => $order->customer_name ?: 'Walk-in',
             'branch' => $order->branch?->name ?? 'Unassigned', 'status' => $order->status, 'total' => (float) ($order->payment?->amount ?? 0),
+            'order_type' => $order->order_type, 'service_type' => $order->service_type,
             'created_at' => $order->created_at, 'items' => $order->orderItems->map(fn ($item) => ['name' => $item->product?->name ?? 'Removed item', 'quantity' => $item->quantity, 'notes' => $item->notes]),
             'status_history' => $order->statusHistories->map(fn ($history) => [
                 'from_status' => $history->from_status,
