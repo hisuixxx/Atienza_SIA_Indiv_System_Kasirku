@@ -104,9 +104,12 @@ interface OrdersData {
 interface Props {
     orders: OrdersData;
     products: Product[];
+    branches: { id: number; name: string; code: string }[];
+    selectedBranch: number | null;
     filters: {
         status?: string;
         search?: string;
+        branch_id?: number | null;
     };
 }
 
@@ -143,12 +146,13 @@ const paymentStatusConfig = {
     rejected: { label: 'Rejected', variant: 'destructive' as const },
 };
 
-export default function OrdersIndex({ orders, products, filters }: Props) {
+export default function OrdersIndex({ orders, products, branches, selectedBranch, filters }: Props) {
     // State
     const [ordersList, setOrdersList] = useState<Order[]>(orders.data || []);
     const [searchTerm, setSearchTerm] = useState(filters?.search || '');
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>(filters?.status || '');
+    const [branchFilter, setBranchFilter] = useState(selectedBranch ? String(selectedBranch) : '');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -220,6 +224,9 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
             if (statusFilter && statusFilter !== '' && statusFilter !== 'all') {
                 params.append('status', statusFilter);
             }
+            if (branchFilter) {
+                params.append('branch_id', branchFilter);
+            }
 
             const response = await fetch(`/admin/orders?${params.toString()}`, {
                 headers: {
@@ -241,7 +248,7 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
         } finally {
             setIsLoadingMore(false);
         }
-    }, [currentPage, hasMorePages, isLoadingMore, debouncedSearchTerm, statusFilter]); // Intersection Observer for infinite scroll
+    }, [currentPage, hasMorePages, isLoadingMore, debouncedSearchTerm, statusFilter, branchFilter]); // Intersection Observer for infinite scroll
     useEffect(() => {
         if (!shouldShowInfiniteScroll()) return;
 
@@ -266,7 +273,7 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
                 observer.unobserve(observerRef.current);
             }
         };
-    }, [loadMoreOrders, hasMorePages, isLoadingMore, debouncedSearchTerm, statusFilter]);
+    }, [loadMoreOrders, hasMorePages, isLoadingMore, debouncedSearchTerm, statusFilter, branchFilter]);
 
     // Reset data and pagination when search or filter changes
     useEffect(() => {
@@ -285,6 +292,9 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
 
                 if (statusFilter && statusFilter !== '' && statusFilter !== 'all') {
                     params.append('status', statusFilter);
+                }
+                if (branchFilter) {
+                    params.append('branch_id', branchFilter);
                 }
 
                 const response = await fetch(`/admin/orders?${params.toString()}`, {
@@ -315,7 +325,7 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
 
         // Always reload data when filters change (including switching to "all")
         loadInitialData();
-    }, [debouncedSearchTerm, statusFilter]);
+    }, [debouncedSearchTerm, statusFilter, branchFilter]);
 
     // Auto print order when orderToPrint is set
     useEffect(() => {
@@ -876,6 +886,11 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
                         <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
                         <Input placeholder="Search orders..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
                     </div>
+
+                    <select aria-label="Filter orders by branch" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
+                        <option value="">{branches.length > 1 ? 'All assigned branches' : branches[0]?.name ?? 'No branch assigned'}</option>
+                        {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                    </select>
 
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="w-[200px]">

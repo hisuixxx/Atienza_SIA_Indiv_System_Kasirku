@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Category;
+use App\Models\Branch;
 use App\Models\Order;
 use App\Models\OrderItems;
 use App\Models\Payment;
@@ -43,6 +44,7 @@ test('dashboard reports accurate revenue and order counts', function () {
         ->where('stats.cancelled_orders', 1)
         // Only the completed payment counts toward revenue.
         ->where('stats.total_revenue', 22000)
+        ->where('pendingPayments', 1)
         ->where('stats.total_products', 1)
     );
 });
@@ -142,7 +144,61 @@ test('dashboard breaks orders down by status for the chart', function () {
 
     $response->assertInertia(fn ($page) => $page
         ->where('ordersByStatus.0', ['status' => 'pending', 'label' => 'Pending', 'count' => 1])
-        ->where('ordersByStatus.1', ['status' => 'completed', 'label' => 'Completed', 'count' => 2])
-        ->where('ordersByStatus.2', ['status' => 'cancelled', 'label' => 'Cancelled', 'count' => 0])
+        ->where('ordersByStatus.1', ['status' => 'confirmed', 'label' => 'Confirmed', 'count' => 0])
+        ->where('ordersByStatus.4', ['status' => 'completed', 'label' => 'Completed', 'count' => 2])
+        ->where('ordersByStatus.5', ['status' => 'cancelled', 'label' => 'Cancelled', 'count' => 0])
+    );
+});
+
+test('admin dashboards compare all branches and can filter a single branch', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $main = Branch::create(['name' => 'Bongabong Main', 'code' => 'MAIN']);
+    $roxas = Branch::create(['name' => 'Roxas', 'code' => 'ROX']);
+
+    $mainOrder = Order::factory()->create(['branch_id' => $main->id, 'status' => 'completed']);
+    Payment::factory()->completed()->create(['order_id' => $mainOrder->id, 'amount' => 1200]);
+    $roxasOrder = Order::factory()->create(['branch_id' => $roxas->id, 'status' => 'pending']);
+    Payment::factory()->create(['order_id' => $roxasOrder->id, 'amount' => 800]);
+
+    $this->get('/admin/dashboard')->assertInertia(fn ($page) => $page
+        ->where('stats.total_branches', 2)
+        ->where('stats.total_orders', 2)
+        ->has('branchPerformance', 2)
+        ->where('branchPerformance.0.name', 'Bongabong Main')
+        ->where('branchPerformance.0.sales', 1200)
+    );
+
+    $this->get('/admin/dashboard?branch_id='.$main->id)->assertInertia(fn ($page) => $page
+        ->where('selectedBranch', $main->id)
+        ->where('stats.total_orders', 1)
+        ->where('recentOrders.0.id', $mainOrder->id)
+        ->has('branchPerformance', 2)
+    );
+});
+
+test('staff dashboard and order filters remain within assigned branches', function () {
+    $assigned = Branch::create(['name' => 'Assigned', 'code' => 'ASSIGNED']);
+    $assignedAlso = Branch::create(['name' => 'Assigned Also', 'code' => 'ASSIGNED2']);
+    $other = Branch::create(['name' => 'Other', 'code' => 'OTHER']);
+    $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+    $staff->branches()->attach([$assigned->id, $assignedAlso->id]);
+    Order::factory()->create(['branch_id' => $assigned->id, 'status' => 'pending']);
+    Order::factory()->create(['branch_id' => $assignedAlso->id, 'status' => 'confirmed']);
+    Order::factory()->create(['branch_id' => $other->id, 'status' => 'completed']);
+
+    $this->actingAs($staff)->get('/staff/dashboard')->assertInertia(fn ($page) => $page
+        ->component('admin/dashboard/index')
+        ->where('stats.total_branches', 2)
+        ->where('stats.total_orders', 2)
+        ->where('stats.active_orders', 2)
+        ->has('recentOrders', 2)
+        ->has('branchPerformance', 2)
+    );
+
+    $this->get('/admin/dashboard?branch_id='.$other->id)->assertForbidden();
+    $this->get('/admin/orders?branch_id='.$other->id)->assertForbidden();
+    $this->get('/admin/orders?branch_id='.$assigned->id)->assertInertia(fn ($page) => $page
+        ->where('selectedBranch', $assigned->id)
+        ->where('orders.total', 1)
     );
 });

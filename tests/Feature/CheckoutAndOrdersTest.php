@@ -143,6 +143,24 @@ class CheckoutAndOrdersTest extends TestCase
         $response->assertRedirect(route('orders.show', $order->order_number));
     }
 
+    public function test_customer_order_is_associated_with_the_selected_branch(): void
+    {
+        $user = User::factory()->create();
+        $product = $this->setupCartWithProduct($user);
+        $branch = Branch::create(['name' => 'Roxas', 'code' => 'ROX']);
+        $product->branches()->attach($branch->id, ['is_available' => true]);
+
+        $this->actingAs($user)->withSession(['customer_branch_id' => $branch->id])
+            ->post(route('checkout.process'), [
+                'customer_name' => 'Coffee Buyer',
+                'customer_phone' => '0917-111-2222',
+                'order_type' => 'pickup',
+                'payment_method' => 'cash_on_pickup',
+            ])->assertRedirect();
+
+        $this->assertDatabaseHas('orders', ['user_id' => $user->id, 'branch_id' => $branch->id]);
+    }
+
     public function test_customer_checkout_rejects_products_unavailable_at_the_selected_branch(): void
     {
         $user = User::factory()->create();

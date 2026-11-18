@@ -40,11 +40,14 @@ class HandleInertiaRequests extends Middleware
     {
         [$message, $author] = str(Inspiring::quotes()->random())->explode('-');
         $user = $request->user();
+        $isAdministrator = $user && in_array($user->role, ['admin', 'administrator'], true);
         $branches = $user && $request->is('admin/*')
-            ? ($user->role === 'administrator' ? Branch::where('is_active', true)->orderBy('name')->get(['id', 'name', 'code']) : $user->branches()->where('is_active', true)->orderBy('name')->get(['branches.id', 'branches.name', 'branches.code']))
+            ? ($isAdministrator ? Branch::orderBy('name')->get(['id', 'name', 'code']) : $user->branches()->where('is_active', true)->orderBy('name')->get(['branches.id', 'branches.name', 'branches.code']))
             : collect();
-        $requestedBranch = $request->integer('branch_id');
-        $selectedBranch = $requestedBranch && $branches->contains('id', $requestedBranch) ? $requestedBranch : ($user?->role === 'administrator' ? null : $branches->first()?->id);
+        $requestedBranch = $request->filled('branch_id') ? $request->integer('branch_id') : null;
+        $selectedBranch = $requestedBranch && $branches->contains('id', $requestedBranch)
+            ? $requestedBranch
+            : ($isAdministrator ? null : $branches->first()?->id);
 
         return [
             ...parent::share($request),

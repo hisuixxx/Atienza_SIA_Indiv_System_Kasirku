@@ -4,7 +4,7 @@ import { Head, Link, router, useForm } from '@inertiajs/react';
 import { ArrowRight, Check, Clock3, Coffee, Download, Package, RefreshCw, Search, Wallet } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-type Branch = { id: number; name: string; code: string; address?: string | null; is_active?: boolean; users?: { id: number; name: string }[] };
+type Branch = { id: number; name: string; code: string; address?: string | null; is_active?: boolean; users?: { id: number; name: string; role?: string }[] };
 type Item = { name: string; quantity: number; notes: string | null };
 type Order = { id: number; number: string; customer: string; branch: string; status: string; total: number; created_at: string; items: Item[]; status_history?: { from_status: string | null; to_status: string; employee: string; branch: string | null; notes: string | null; created_at: string }[] };
 type PaymentRow = { id: number; order_id: number; order_number: string; customer: string; branch: string; method: string; amount: number; status: string; order_status: string | null; verification_status: string | null; rejection_reason: string | null; reference: string | null; receipt_url: string | null; date: string; verification: { id: number; status: string; reference_number: string } | null };
@@ -62,7 +62,54 @@ export default function Operations({ module, title, branches, selectedBranch, or
             </tbody></table></div>
         </Panel>}
 
-        {module === 'branches' && <div className="grid gap-4 xl:grid-cols-[.7fr_1.3fr]"><Panel title="Add branch" note="Create a branch location in the shared workspace."><BranchCreateForm /></Panel><Panel title="Branches & team access" note="Assign employees to only the locations they serve."><div className="space-y-4">{branches.map(branch => <form key={branch.id} className="rounded-xl border border-[#e9e1d7] p-4" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); router.put(`/admin/branches/${branch.id}`, { name: String(form.get('name') ?? ''), address: String(form.get('address') ?? ''), is_active: form.get('is_active') === 'on', employee_ids: form.getAll('employee_ids[]').map(Number) }, { preserveScroll: true }); }}><div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input className="brew-control" name="name" defaultValue={branch.name} required /><input className="brew-control" name="address" defaultValue={branch.address ?? ''} placeholder="Address" /><label className="flex items-center gap-2 text-xs"><input type="checkbox" name="is_active" defaultChecked={branch.is_active} /> Active</label></div><p className="brew-overline mt-3">Employees</p><div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">{employees.map(employee => <label className="flex items-center gap-1.5 text-xs text-[#81766d]" key={employee.id}><input type="checkbox" name="employee_ids[]" value={employee.id} defaultChecked={branch.users?.some(user => user.id === employee.id)} />{employee.name} · {employee.role}</label>)}</div><button className="brew-button mt-3">Save branch access</button></form>)}<div className="overflow-x-auto"><table className="brew-table"><thead><tr><th>Employee</th><th>Role</th><th>Status</th><th>Save</th></tr></thead><tbody>{employees.map(employee => <tr key={employee.id}><td>{employee.name}<small className="block">{employee.email}</small></td><td><select className="brew-control" defaultValue={employee.role} aria-label={`Role for ${employee.name}`}><option value="administrator">Administrator</option><option value="branch_manager">Branch manager</option><option value="cashier">Cashier</option><option value="kitchen_staff">Kitchen staff</option><option value="inventory_staff">Inventory staff</option></select></td><td><label className="flex items-center gap-1"><input type="checkbox" defaultChecked={employee.is_active} aria-label={`Active status for ${employee.name}`} />{employee.is_active ? 'Active' : 'Inactive'}</label></td><td><button className="brew-control" onClick={event => { const row = event.currentTarget.closest('tr'); const role = row?.querySelector('select')?.value ?? employee.role; const is_active = !!row?.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked; router.put(`/admin/employees/${employee.id}`, { role, is_active }, { preserveScroll: true }); }}>Save employee</button></td></tr>)}</tbody></table></div></div></Panel></div>}
+        {module === 'branches' && (
+            <div className="grid gap-4 xl:grid-cols-[.7fr_1.3fr]">
+                <Panel title="Add branch" note="Create a branch location in the shared workspace.">
+                    <BranchCreateForm />
+                </Panel>
+                <Panel title="Branches & team access" note="Assign staff and kitchen employees to their service locations.">
+                    <div className="space-y-4">
+                        {branches.map(branch => (
+                            <form key={branch.id} className="rounded-xl border border-[#e9e1d7] p-4" onSubmit={event => {
+                                event.preventDefault();
+                                const form = new FormData(event.currentTarget);
+                                router.put(`/admin/branches/${branch.id}`, {
+                                    name: String(form.get('name') ?? ''),
+                                    code: String(form.get('code') ?? ''),
+                                    address: String(form.get('address') ?? ''),
+                                    is_active: form.get('is_active') === 'on',
+                                    employee_ids: form.getAll('employee_ids[]').map(Number),
+                                }, { preserveScroll: true });
+                            }}>
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                    <div><h3 className="font-semibold text-[#49362c]">{branch.name}</h3><p className="text-xs text-[#8d7e73]">{branch.code} · {branch.address ?? 'No address set'}</p></div>
+                                    <span className={`brew-pill ${branch.is_active ? 'brew-pill-green' : 'bg-stone-100 text-stone-600'}`}>{branch.is_active ? 'Active' : 'Inactive'}</span>
+                                </div>
+                                <div className="grid gap-2 sm:grid-cols-[1fr_.5fr_1fr_auto]">
+                                    <input aria-label={`${branch.name} name`} className="brew-control" name="name" defaultValue={branch.name} required />
+                                    <input aria-label={`${branch.name} code`} className="brew-control uppercase" name="code" defaultValue={branch.code} required />
+                                    <input aria-label={`${branch.name} address`} className="brew-control" name="address" defaultValue={branch.address ?? ''} placeholder="Address" />
+                                    <label className="flex items-center gap-2 text-xs"><input type="checkbox" name="is_active" defaultChecked={branch.is_active} /> Active</label>
+                                </div>
+                                <p className="brew-overline mt-3">Assigned staff and kitchen</p>
+                                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+                                    {employees.map(employee => <label className="flex items-center gap-1.5 text-xs text-[#81766d]" key={employee.id}>
+                                        <input type="checkbox" name="employee_ids[]" value={employee.id} defaultChecked={branch.users?.some(user => user.id === employee.id)} />
+                                        {employee.name} · {employee.role}{employee.is_active ? '' : ' · inactive'}
+                                    </label>)}
+                                    {!employees.length && <span className="text-xs text-[#8d7e73]">No staff or kitchen accounts to assign.</span>}
+                                </div>
+                                <div className="mt-3 flex flex-wrap items-center gap-3">
+                                    <button className="brew-button">Save branch</button>
+                                    <Link href={`/admin/orders?branch_id=${branch.id}`} className="brew-text-link">Branch orders <ArrowRight size={14} /></Link>
+                                    <Link href={`/admin/dashboard?branch_id=${branch.id}`} className="brew-text-link">Performance <ArrowRight size={14} /></Link>
+                                </div>
+                            </form>
+                        ))}
+                    </div>
+                </Panel>
+            </div>
+        )}
 
         {module === 'reports' && <><div className="mb-4 flex flex-wrap items-center gap-2"><label className="brew-overline">From <input className="brew-control ml-1" type="date" value={filters.start_date ?? ''} onChange={event => router.get('/admin/reports', { ...(selectedBranch ? { branch_id: selectedBranch } : {}), ...filters, start_date: event.target.value }, { preserveState: true })} /></label><label className="brew-overline">To <input className="brew-control ml-1" type="date" value={filters.end_date ?? ''} onChange={event => router.get('/admin/reports', { ...(selectedBranch ? { branch_id: selectedBranch } : {}), ...filters, end_date: event.target.value }, { preserveState: true })} /></label><select aria-label="Filter payment method" className="brew-control" value={filters.payment_method ?? ''} onChange={event => router.get('/admin/reports', { ...(selectedBranch ? { branch_id: selectedBranch } : {}), ...filters, payment_method: event.target.value }, { preserveState: true })}><option value="">All payment methods</option>{['cash', 'gcash', 'card', 'digital', 'midtrans', 'other'].map(method => <option key={method} value={method}>{method}</option>)}</select><Link className="brew-button" href={`/admin/reports/export?${new URLSearchParams({ ...(selectedBranch ? { branch_id: String(selectedBranch) } : {}), ...(filters.start_date ? { start_date: filters.start_date } : {}), ...(filters.end_date ? { end_date: filters.end_date } : {}), ...(filters.payment_method ? { payment_method: filters.payment_method } : {}) }).toString()}`}><Download size={14} /> CSV</Link><button className="brew-control" onClick={() => window.print()}>Print report</button></div><section className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Gross sales" value={formatCurrency(summary?.gross ?? 0)} /><Metric label="Refunds" value={formatCurrency(summary?.refunds ?? 0)} /><Metric label="Net sales" value={formatCurrency(summary?.net ?? 0)} /><Metric label="Paid orders" value={String(summary?.orders ?? 0)} /></section><Panel title="Payment reconciliation" note="Collections less processed manual refunds in the selected branch and date range."><div className="overflow-x-auto"><table className="brew-table"><thead><tr><th>Payment method</th><th>Transactions</th><th>Gross</th><th>Refunds</th><th className="text-right">Net collections</th></tr></thead><tbody>{breakdown.map(row => <tr key={row.method}><td className="capitalize">{row.method}</td><td>{row.count}</td><td>{formatCurrency(row.amount)}</td><td>{formatCurrency(row.refunds)}</td><td className="text-right">{formatCurrency(row.net)}</td></tr>)}</tbody></table>{!breakdown.length && <div className="brew-empty"><Wallet size={22} /><p>No completed collections in this selection.</p></div>}</div></Panel></>}
 

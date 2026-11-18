@@ -62,6 +62,10 @@ class AuthenticatedSessionController extends Controller
             return redirect()->intended($targetUrl ?: route('staff.dashboard'))->with('success', 'Welcome back, Barista / Staff!');
         }
 
+        if ($user->isKitchen()) {
+            return redirect()->intended($targetUrl ?: route('admin.kitchen'))->with('success', 'Welcome back to the kitchen!');
+        }
+
         return redirect()->intended($targetUrl ?: route('menu'))->with('success', 'Welcome back to BrewSync, ' . $user->name . '!');
     }
 

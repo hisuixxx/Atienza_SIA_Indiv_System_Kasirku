@@ -6,9 +6,11 @@ use App\Models\Branch;
 use App\Models\Notification;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\User;
 use App\Services\OrderStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 class OperationsController extends Controller
@@ -16,9 +18,11 @@ class OperationsController extends Controller
     private function scopedOrders(Request $request)
     {
         $query = Order::with(['branch', 'payment', 'orderItems.product', 'statusHistories.user', 'statusHistories.branch']);
-        [, $branchId] = $this->branchData($request);
+        [$branches, $branchId] = $this->branchData($request);
         if ($branchId) {
             $query->where('branch_id', $branchId);
+        } elseif (! $this->isAdministrator($request->user())) {
+            $query->whereIn('branch_id', $branches->modelKeys());
         }
 
         return $query;
@@ -27,13 +31,13 @@ class OperationsController extends Controller
     private function branchData(Request $request): array
     {
         $user = $request->user();
-        $branches = $this->isAdministrator($user) ? Branch::where('is_active', true)->get() : $user->branches()->where('is_active', true)->get();
-        $requestedBranch = $request->integer('branch_id');
-        if ($requestedBranch && ! $branches->contains('id', $requestedBranch)) {
+        $branches = $this->isAdministrator($user) ? Branch::orderBy('name')->get() : $user->branches()->where('is_active', true)->orderBy('name')->get();
+        $requestedBranch = $request->filled('branch_id') ? $request->integer('branch_id') : null;
+        if ($requestedBranch !== null && (! $requestedBranch || ! $branches->contains('id', $requestedBranch))) {
             abort(403, 'You cannot access that branch.');
         }
 
-        return [$branches, $requestedBranch ?: ($this->isAdministrator($user) ? null : $branches->first()?->id)];
+        return [$branches, $requestedBranch];
     }
 
     public function kitchen(Request $request)
@@ -52,6 +56,7 @@ class OperationsController extends Controller
         [$branches, $selectedBranch] = $this->branchData($request);
         $payments = Payment::with(['order.branch'])
             ->when($selectedBranch, fn ($query) => $query->whereHas('order', fn ($orders) => $orders->where('branch_id', $selectedBranch)))
+            ->when(! $selectedBranch && ! $this->isAdministrator($request->user()), fn ($query) => $query->whereHas('order', fn ($orders) => $orders->whereIn('branch_id', $branches->modelKeys())))
             ->latest()->limit(100)->get()->map(fn (Payment $payment) => [
                 'id' => $payment->id, 'order_id' => $payment->order_id, 'order_number' => $payment->order?->order_number ?? '#'.$payment->order_id,
                 'customer' => $payment->order?->customer_name ?: 'Walk-in', 'branch' => $payment->order?->branch?->name ?? 'Unassigned',
@@ -78,17 +83,19 @@ class OperationsController extends Controller
 
     public function branches(Request $request)
     {
-        abort_unless($request->user()->role === 'administrator', 403);
+        abort_unless($this->isAdministrator($request->user()), 403);
 
         return Inertia::render('admin/operations/index', [
             'module' => 'branches', 'title' => 'Branch management', 'branches' => Branch::with('users')->orderBy('name')->get(),
-            'employees' => DB::table('users')->orderBy('name')->get(['id', 'name', 'email', 'role', 'is_active']),
+            'employees' => User::whereIn('role', [User::ROLE_STAFF, User::ROLE_KITCHEN])
+                ->orderBy('name')->get(['id', 'name', 'email', 'role', 'is_active']),
         ]);
     }
 
     public function storeBranch(Request $request)
     {
-        abort_unless($request->user()->role === 'administrator', 403);
+        abort_unless($this->isAdministrator($request->user()), 403);
+        $request->merge(['code' => strtoupper(trim((string) $request->input('code')))]);
         $data = $request->validate(['name' => 'required|string|max:255', 'code' => 'required|string|max:32|unique:branches,code', 'address' => 'nullable|string|max:255']);
         Branch::create($data + ['is_active' => true]);
 
@@ -97,10 +104,37 @@ class OperationsController extends Controller
 
     public function updateBranch(Request $request, Branch $branch)
     {
-        abort_unless($request->user()->role === 'administrator', 403);
-        $data = $request->validate(['name' => 'required|string|max:255', 'address' => 'nullable|string|max:255', 'is_active' => 'required|boolean', 'employee_ids' => 'present|array', 'employee_ids.*' => 'exists:users,id']);
-        $branch->update(['name' => $data['name'], 'address' => $data['address'] ?? null, 'is_active' => $data['is_active']]);
-        $branch->users()->sync($data['employee_ids']);
+        abort_unless($this->isAdministrator($request->user()), 403);
+        $request->merge(['code' => strtoupper(trim((string) $request->input('code')))]);
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'code' => ['required', 'string', 'max:32', Rule::unique('branches', 'code')->ignore($branch->id)],
+            'address' => 'nullable|string|max:255',
+            'is_active' => 'required|boolean',
+            'employee_ids' => 'present|array',
+            'employee_ids.*' => ['integer', Rule::exists('users', 'id')->where(fn ($query) => $query->whereIn('role', [User::ROLE_STAFF, User::ROLE_KITCHEN]))],
+        ]);
+        DB::transaction(function () use ($branch, $data): void {
+            $lockedBranch = Branch::lockForUpdate()->findOrFail($branch->id);
+            if ($lockedBranch->is_active && ! $data['is_active']) {
+                $activeOrderExists = $lockedBranch->orders()->whereIn('status', ['pending', 'confirmed', 'preparing', 'ready', 'ready_for_pickup', 'out_for_delivery'])->exists();
+                abort_unless(! $activeOrderExists, 422, 'Resolve active branch orders before deactivating this branch.');
+                abort_unless(Branch::where('is_active', true)->count() > 1, 422, 'At least one branch must remain active.');
+            }
+
+            $lockedBranch->update([
+                'name' => $data['name'],
+                'code' => $data['code'],
+                'address' => $data['address'] ?? null,
+                'is_active' => $data['is_active'],
+            ]);
+            $employeeIds = array_map('intval', $data['employee_ids']);
+            $currentEmployeeIds = $lockedBranch->users()
+                ->whereIn('users.role', [User::ROLE_STAFF, User::ROLE_KITCHEN])
+                ->pluck('users.id')->all();
+            $lockedBranch->users()->detach(array_diff($currentEmployeeIds, $employeeIds));
+            $lockedBranch->users()->syncWithoutDetaching($employeeIds);
+        });
 
         return back()->with('success', 'Branch settings and employee access saved.');
     }
@@ -136,6 +170,8 @@ class OperationsController extends Controller
         $refundQuery = DB::table('refunds')->join('payments', 'refunds.payment_id', '=', 'payments.id')->join('orders', 'payments.order_id', '=', 'orders.id')->where('refunds.status', 'processed_manual');
         if ($selectedBranch) {
             $refundQuery->where('orders.branch_id', $selectedBranch);
+        } elseif (! $this->isAdministrator($request->user())) {
+            $refundQuery->whereIn('orders.branch_id', $branches->modelKeys());
         }
         if (! empty($filters['start_date'])) {
             $refundQuery->whereDate('refunds.processed_at', '>=', $filters['start_date']);
@@ -185,9 +221,11 @@ class OperationsController extends Controller
         });
         $orders = $query->get();
         $refundQuery = DB::table('refunds')->join('payments', 'refunds.payment_id', '=', 'payments.id')->join('orders', 'payments.order_id', '=', 'orders.id')->leftJoin('branches', 'orders.branch_id', '=', 'branches.id')->where('refunds.status', 'processed_manual');
-        [, $branchId] = $this->branchData($request);
+        [$branches, $branchId] = $this->branchData($request);
         if ($branchId) {
             $refundQuery->where('orders.branch_id', $branchId);
+        } elseif (! $this->isAdministrator($request->user())) {
+            $refundQuery->whereIn('orders.branch_id', $branches->modelKeys());
         }
         if (! empty($filters['start_date'])) {
             $refundQuery->whereDate('refunds.processed_at', '>=', $filters['start_date']);
@@ -219,12 +257,16 @@ class OperationsController extends Controller
         $refundsQuery = DB::table('refunds')->join('payments', 'refunds.payment_id', '=', 'payments.id')->join('orders', 'payments.order_id', '=', 'orders.id')->leftJoin('branches', 'orders.branch_id', '=', 'branches.id')->leftJoin('users as refund_authorizers', 'refunds.authorized_by', '=', 'refund_authorizers.id')->leftJoin('users as refund_processors', 'refunds.processed_by', '=', 'refund_processors.id')->select('refunds.*', 'orders.branch_id', 'orders.order_number', 'orders.customer_name', 'branches.name as branch_name', 'refund_authorizers.name as authorized_employee', 'refund_processors.name as processed_employee');
         if ($selectedBranch) {
             $refundsQuery->where('orders.branch_id', $selectedBranch);
+        } elseif (! $this->isAdministrator($request->user())) {
+            $refundsQuery->whereIn('orders.branch_id', $branches->modelKeys());
         }
         $refunds = $refundsQuery->latest('refunds.created_at')->limit(100)->get();
 
         $cancellationsQuery = DB::table('cancellations')->join('orders', 'cancellations.order_id', '=', 'orders.id')->leftJoin('branches', 'orders.branch_id', '=', 'branches.id')->leftJoin('users as cancellation_users', 'cancellations.requested_by', '=', 'cancellation_users.id')->select('cancellations.*', 'orders.branch_id', 'orders.order_number', 'orders.customer_name', 'branches.name as branch_name', 'cancellation_users.name as employee_name');
         if ($selectedBranch) {
             $cancellationsQuery->where('orders.branch_id', $selectedBranch);
+        } elseif (! $this->isAdministrator($request->user())) {
+            $cancellationsQuery->whereIn('orders.branch_id', $branches->modelKeys());
         }
         $cancellations = $cancellationsQuery->latest('cancellations.created_at')->limit(100)->get();
 
@@ -233,7 +275,7 @@ class OperationsController extends Controller
 
     public function updateKitchen(Request $request, Order $order)
     {
-        $this->authorizeRoles($request, ['administrator', 'branch_manager', 'kitchen_staff']);
+        $this->authorizeRoles($request, ['admin', 'administrator', 'branch_manager', 'kitchen', 'kitchen_staff']);
         $this->authorizeBranch($request, $order);
         abort_unless(in_array($order->status, ['pending', 'confirmed', 'preparing', 'ready'], true), 422, 'This order can no longer be cancelled.');
         $data = $request->validate(['status' => 'required|in:confirmed,preparing,ready']);
@@ -484,7 +526,12 @@ class OperationsController extends Controller
 
     private function authorizeBranch(Request $request, Order $order): void
     {
-        abort_unless($this->isAdministrator($request->user()) || $request->user()->branches()->whereKey($order->branch_id)->exists(), 403);
+        abort_unless(
+            $this->isAdministrator($request->user())
+                || (Branch::whereKey($order->branch_id)->where('is_active', true)->exists()
+                    && $request->user()->branches()->whereKey($order->branch_id)->exists()),
+            403
+        );
     }
 
     private function authorizeRoles(Request $request, array $roles): void

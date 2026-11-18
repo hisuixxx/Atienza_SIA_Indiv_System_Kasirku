@@ -11,7 +11,6 @@ use App\Http\Controllers\OperationsController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PrintController;
 use App\Http\Controllers\ProductController;
-use App\Http\Controllers\Staff\StaffDashboardController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Controllers\Admin\UserController;
@@ -53,7 +52,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/orders/{orderNumber}', [CustomerOrderController::class, 'show'])->name('orders.show');
 });
 
-Route::get('/staff/dashboard', [StaffDashboardController::class, 'index'])
+Route::get('/staff/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'active', 'role:staff'])
     ->name('staff.dashboard');
 
@@ -81,6 +80,11 @@ Route::prefix('admin')
         Route::resource('categories', CategoryController::class);
         Route::resource('products', ProductController::class);
         Route::patch('products/{product}/availability', [ProductController::class, 'updateAvailability'])->name('products.availability');
+
+        // Branch management
+        Route::get('branches', [OperationsController::class, 'branches'])->name('admin.branches');
+        Route::post('branches', [OperationsController::class, 'storeBranch'])->name('admin.branches.store');
+        Route::put('branches/{branch}', [OperationsController::class, 'updateBranch'])->name('admin.branches.update');
 
         // Reports
         Route::get('reports', [OperationsController::class, 'reports'])->name('admin.reports');
@@ -134,7 +138,7 @@ Route::prefix('admin')
 // SHARED (Admin + Staff + Kitchen)
 // =====================================================
 Route::prefix('admin')
-    ->middleware(['auth', 'active', 'role:admin,staff,kitchen,administrator,branch_manager,cashier,kitchen_staff'])
+    ->middleware(['auth', 'active', 'role:admin,staff,administrator,branch_manager,cashier'])
     ->group(function () {
         Route::get('dashboard', [DashboardController::class, 'index'])->name('admin.dashboard');
         Route::post('print', [PrintController::class, 'index'])->name('print.index');

@@ -1,15 +1,18 @@
 import { ChartContainer, ChartTooltip, type ChartConfig } from '@/components/ui/chart';
-import { CheckCircle2, Clock, XCircle, type LucideIcon } from 'lucide-react';
+import { CheckCircle2, Clock, Coffee, XCircle, type LucideIcon } from 'lucide-react';
 import { Bar, BarChart, Cell, LabelList, XAxis, YAxis } from 'recharts';
 
 interface StatusPoint {
-    status: 'pending' | 'completed' | 'cancelled';
+    status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed' | 'cancelled';
     label: string;
     count: number;
 }
 
 const statusMeta: Record<StatusPoint['status'], { color: string; icon: LucideIcon }> = {
     pending: { color: 'var(--color-status-warning)', icon: Clock },
+    confirmed: { color: '#b78742', icon: CheckCircle2 },
+    preparing: { color: '#805840', icon: Coffee },
+    ready: { color: '#617d62', icon: CheckCircle2 },
     completed: { color: 'var(--color-status-good)', icon: CheckCircle2 },
     cancelled: { color: 'var(--color-status-critical)', icon: XCircle },
 };

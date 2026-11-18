@@ -20,15 +20,28 @@ class OrderController extends Controller
      */
     public function index(Request $request)
     {
+        $user = $request->user();
+        $isAdministrator = $this->isAdministrator($user);
+        $branchId = $request->filled('branch_id') ? $request->integer('branch_id') : null;
+        if ($branchId !== null) {
+            if ($isAdministrator) {
+                abort_unless(Branch::whereKey($branchId)->exists(), 404);
+            } else {
+                abort_unless($branchId && $user->branches()->whereKey($branchId)->exists(), 403);
+            }
+        }
+        $branches = $isAdministrator
+            ? Branch::orderBy('name')->get(['id', 'name', 'code'])
+            : $user->branches()->orderBy('name')->get(['branches.id', 'branches.name', 'branches.code']);
+
         try {
             $query = Order::with(['orderItems.product.photos', 'payment', 'statusHistories.user', 'statusHistories.branch', 'cancellation'])
                 ->orderBy('created_at', 'desc');
-            $user = $request->user();
-            if (! $this->isAdministrator($user)) {
+            if (! $isAdministrator) {
                 $query->whereIn('branch_id', $user->branches()->select('branches.id'));
-            } elseif ($request->filled('branch_id')) {
-                abort_unless(Branch::whereKey($request->integer('branch_id'))->where('is_active', true)->exists(), 404);
-                $query->where('branch_id', $request->integer('branch_id'));
+            }
+            if ($branchId !== null) {
+                $query->where('branch_id', $branchId);
             }
 
             // Filter by status if provided
@@ -109,14 +122,16 @@ class OrderController extends Controller
                 return response()->json([
                     'orders' => $orders,
                     'products' => $products,
-                    'filters' => $request->only(['status', 'search']),
+                    'filters' => $request->only(['status', 'search']) + ['branch_id' => $branchId],
                 ]);
             }
 
             return Inertia::render('admin/orders/index', [
                 'orders' => $orders,
                 'products' => $products,
-                'filters' => $request->only(['status', 'search']),
+                'branches' => $branches,
+                'selectedBranch' => $branchId,
+                'filters' => $request->only(['status', 'search']) + ['branch_id' => $branchId],
             ]);
         } catch (\Exception $e) {
             report($e);
@@ -132,8 +147,9 @@ class OrderController extends Controller
         $user = request()->user();
         abort_unless(in_array($user->role, ['admin', 'administrator', 'branch_manager', 'cashier', 'staff'], true), 403);
         $branches = $this->isAdministrator($user) ? Branch::where('is_active', true)->orderBy('name')->get() : $user->branches()->where('is_active', true)->orderBy('name')->get();
-        $selectedBranch = request()->integer('branch_id') ?: $branches->first()?->id;
-        abort_unless(! $selectedBranch || $branches->contains('id', $selectedBranch), 403);
+        $requestedBranch = request()->filled('branch_id') ? request()->integer('branch_id') : null;
+        abort_unless($requestedBranch === null || ($requestedBranch && $branches->contains('id', $requestedBranch)), 403);
+        $selectedBranch = $requestedBranch ?? $branches->first()?->id;
         $products = Product::with(['category:id,name', 'photos:id,product_id,url,is_primary', 'branches:id'])->where('is_active', true)->orderBy('name')->get()->map(fn (Product $product) => [
             'id' => $product->id, 'name' => $product->name, 'description' => $product->description,
             'category' => $product->category?->name ?? 'Other', 'price' => (float) $product->price,
@@ -166,17 +182,17 @@ class OrderController extends Controller
             'payment_method' => 'required|in:cash,digital,gcash,card,other',
         ]);
 
+        $branchId = $request->input('branch_id');
+        $branchId ??= $request->user()->branches()->value('branches.id');
+        if (! $this->isAdministrator($request->user())) {
+            abort_unless($branchId && $request->user()->branches()->whereKey($branchId)->exists(), 403);
+        }
+        abort_unless(! $branchId || Branch::whereKey($branchId)->where('is_active', true)->exists(), 422, 'Selected branch is inactive.');
+        abort_unless(in_array($request->user()->role, ['admin', 'administrator', 'branch_manager', 'cashier', 'staff'], true), 403);
+
         DB::beginTransaction();
 
         try {
-            $branchId = $request->input('branch_id');
-            $branchId ??= $request->user()->branches()->value('branches.id');
-            abort_unless(! $branchId || Branch::whereKey($branchId)->where('is_active', true)->exists(), 422, 'Selected branch is inactive.');
-            if (! $this->isAdministrator($request->user())) {
-                abort_unless($request->user()->branches()->whereKey($branchId)->exists(), 403);
-            }
-            abort_unless(in_array($request->user()->role, ['admin', 'administrator', 'branch_manager', 'cashier', 'staff'], true), 403);
-
             // Calculate total amount
             $subtotalAmount = 0;
             $validatedItems = [];

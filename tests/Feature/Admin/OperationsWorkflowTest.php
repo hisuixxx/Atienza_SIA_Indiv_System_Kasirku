@@ -5,6 +5,7 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
+use Database\Seeders\UserSeeder;
 use Illuminate\Support\Facades\DB;
 
 test('kitchen transitions are recorded and cannot skip preparation', function () {
@@ -29,6 +30,77 @@ test('employees cannot update an order outside their assigned branches', functio
     $this->actingAs($staff)->patch(route('admin.kitchen.update', $order), ['status' => 'preparing'])->assertForbidden();
 });
 
+test('canonical kitchen users see and update only orders from assigned branches', function () {
+    $assigned = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $other = Branch::create(['name' => 'Roxas', 'code' => 'ROX']);
+    $kitchen = User::factory()->create(['role' => User::ROLE_KITCHEN]);
+    $kitchen->branches()->attach($assigned->id);
+    $assignedOrder = Order::factory()->create(['branch_id' => $assigned->id, 'status' => 'pending']);
+    Order::factory()->create(['branch_id' => $other->id, 'status' => 'pending']);
+
+    $this->actingAs($kitchen)->get('/admin/kitchen')->assertInertia(fn ($page) => $page
+        ->component('admin/operations/index')
+        ->has('orders', 1)
+        ->where('orders.0.id', $assignedOrder->id)
+    );
+    $this->get('/admin/kitchen?branch_id='.$other->id)->assertForbidden();
+    $this->get('/admin/dashboard')->assertForbidden();
+    $this->patch(route('admin.kitchen.update', $assignedOrder), ['status' => 'confirmed'])->assertRedirect();
+});
+
+test('admin branch management edits branch details and only assigns staff and kitchen users', function () {
+    $admin = User::factory()->admin()->create();
+    $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $secondBranch = Branch::create(['name' => 'Roxas', 'code' => 'ROX']);
+    $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+    $kitchen = User::factory()->create(['role' => User::ROLE_KITCHEN]);
+    $customer = User::factory()->create(['role' => User::ROLE_CUSTOMER]);
+    $branch->users()->attach($admin->id);
+
+    $this->actingAs($admin)->get('/admin/branches')->assertInertia(fn ($page) => $page
+        ->component('admin/operations/index')
+        ->where('module', 'branches')
+        ->has('branches', 2)
+        ->has('employees', 2)
+    );
+
+    $this->post('/admin/branches', ['name' => 'Pinamalayan', 'code' => 'pin', 'address' => 'Town proper'])
+        ->assertRedirect();
+    $this->assertDatabaseHas('branches', ['name' => 'Pinamalayan', 'code' => 'PIN']);
+
+    $this->put('/admin/branches/'.$branch->id, [
+        'name' => 'Bongabong Main Branch',
+        'code' => 'MAIN',
+        'address' => 'Bongabong',
+        'is_active' => true,
+        'employee_ids' => [$staff->id, $kitchen->id],
+    ])->assertRedirect();
+    $this->assertDatabaseHas('branches', ['id' => $branch->id, 'name' => 'Bongabong Main Branch']);
+    expect($branch->fresh()->users->modelKeys())->toContain($admin->id, $staff->id, $kitchen->id);
+
+    $this->putJson('/admin/branches/'.$branch->id, [
+        'name' => 'Bongabong Main Branch',
+        'code' => 'MAIN',
+        'address' => 'Bongabong',
+        'is_active' => true,
+        'employee_ids' => [$customer->id],
+    ])->assertUnprocessable();
+
+    $this->actingAs($staff)->get('/admin/branches')->assertForbidden();
+    expect($secondBranch->fresh()->is_active)->toBeTrue();
+});
+
+test('branch seeding reuses exactly the four canonical locations', function () {
+    $this->seed(UserSeeder::class);
+    $this->seed(UserSeeder::class);
+
+    $this->assertDatabaseCount('branches', 4);
+    $this->assertDatabaseHas('branches', ['code' => 'MAIN', 'name' => 'Bongabong Main Branch – Headquarters']);
+    $this->assertDatabaseHas('branches', ['code' => 'ROX', 'name' => 'Roxas Branch']);
+    $this->assertDatabaseHas('branches', ['code' => 'PIN', 'name' => 'Pinamalayan Branch']);
+    $this->assertDatabaseHas('branches', ['code' => 'PG', 'name' => 'Puerto Galera Branch']);
+});
+
 test('cashier can place a branch order with a public order number', function () {
     $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
     $cashier = User::factory()->create(['role' => 'cashier']);
@@ -46,6 +118,27 @@ test('cashier can place a branch order with a public order number', function () 
     expect($order->branch_id)->toBe($branch->id);
     expect($order->orderItems->first()->notes)->toBe('No sugar');
     expect($order->payment->status)->toBe('completed');
+});
+
+test('canonical staff can create POS orders only for an assigned active branch', function () {
+    $assigned = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $other = Branch::create(['name' => 'Roxas', 'code' => 'ROX']);
+    $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+    $staff->branches()->attach($assigned->id);
+    $product = Product::factory()->create();
+    $this->actingAs($staff);
+
+    $payload = [
+        'customer_name' => 'Walk-in',
+        'payment_method' => 'cash',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+    ];
+    $this->postJson('/admin/orders', $payload + ['branch_id' => $other->id])->assertForbidden();
+    $this->assertDatabaseCount('orders', 0);
+
+    $this->postJson('/admin/orders', $payload + ['branch_id' => $assigned->id])
+        ->assertOk()->assertJson(['success' => true]);
+    $this->assertDatabaseHas('orders', ['customer_name' => 'Walk-in', 'branch_id' => $assigned->id]);
 });
 
 test('handoff completes only paid ready orders and records the employee', function () {
