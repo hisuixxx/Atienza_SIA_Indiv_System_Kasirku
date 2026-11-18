@@ -38,8 +38,8 @@ class CartController extends Controller
             return redirect()->route('login')->with('error', 'Please sign in or create an account to customize and order drinks.');
         }
 
-        if (!$product->is_available) {
-            return back()->with('error', 'This item is currently sold out and cannot be added to your cart.');
+        if (! $product->isAvailableAt(session('customer_branch_id'))) {
+            return back()->with('error', 'This item is currently unavailable at the selected branch.');
         }
 
         $request->validate([

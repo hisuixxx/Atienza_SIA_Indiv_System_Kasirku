@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Category;
+use App\Models\Branch;
 use App\Models\Product;
 use App\Models\ProductPhotos;
 use App\Models\User;
@@ -24,6 +25,37 @@ test('admin can list products with category and photos', function () {
         ->component('admin/products/index')
         ->has('products', 3)
     );
+});
+
+test('admin can update default product availability', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $product = Product::factory()->create(['is_available' => true]);
+
+    $this->patch(route('products.availability', $product), ['is_available' => false])
+        ->assertRedirect();
+
+    $this->assertDatabaseHas('products', ['id' => $product->id, 'is_available' => false]);
+});
+
+test('availability overrides are unique and branch specific', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $branchA = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $branchB = Branch::create(['name' => 'North', 'code' => 'NORTH']);
+    $product = Product::factory()->create(['is_available' => false]);
+
+    $this->patch(route('products.availability', $product), ['branch_id' => $branchA->id, 'is_available' => true])->assertRedirect();
+    $this->patch(route('products.availability', $product), ['branch_id' => $branchB->id, 'is_available' => false])->assertRedirect();
+    $this->patch(route('products.availability', $product), ['branch_id' => $branchA->id, 'is_available' => true])->assertRedirect();
+
+    expect($product->fresh()->isAvailableAt($branchA->id))->toBeTrue();
+    expect($product->fresh()->isAvailableAt($branchB->id))->toBeFalse();
+    $this->assertDatabaseCount('branch_product_availability', 2);
+
+    $this->get(route('products.index', ['branch_id' => $branchB->id]))
+        ->assertInertia(fn ($page) => $page
+            ->where('selectedBranch', $branchB->id)
+            ->where('products.0.is_available', false)
+        );
 });
 
 test('product search filters by name', function () {

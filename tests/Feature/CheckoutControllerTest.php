@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\CheckoutController;
+use App\Models\Branch;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
@@ -75,6 +76,22 @@ test('checkout rounds fractional tax to whole IDR instead of truncating', functi
     $expectedTax = round(33333 * config('pos.tax_rate'));
 
     expect((float) $order->payment->amount)->toBe(33333 + $expectedTax);
+});
+
+test('online checkout rejects a product unavailable at the submitted branch', function () {
+    fakeMidtransService();
+    $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $product = Product::factory()->create();
+    $product->branches()->attach($branch->id, ['is_available' => false]);
+
+    $this->postJson('/checkout/process', [
+        'customer_name' => 'Budi',
+        'table_number' => 1,
+        'branch_id' => $branch->id,
+        'cart' => [['product' => ['id' => $product->id], 'quantity' => 1]],
+    ])->assertUnprocessable()->assertJsonValidationErrors('cart');
+
+    $this->assertDatabaseCount('orders', 0);
 });
 
 test('midtrans settlement status marks payment completed and order pending', function () {

@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Category;
+use App\Models\Branch;
 use App\Models\ProductPhotos;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
@@ -16,7 +18,12 @@ class ProductController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'photos']);
+        $branchId = $request->filled('branch_id') ? $request->integer('branch_id') : null;
+        if ($branchId !== null) {
+            abort_unless(Branch::whereKey($branchId)->where('is_active', true)->exists(), 404);
+        }
+
+        $query = Product::with(['category', 'photos', 'branches:id']);
 
         // Apply search filter
         if ($request->has('search') && $request->search) {
@@ -36,14 +43,20 @@ class ProductController extends Controller
         // Paginate results
         $perPage = 12; // Number of products per page
         $products = $query->latest()->paginate($perPage);
+        $products->getCollection()->each(function (Product $product) use ($branchId): void {
+            $product->setAttribute('is_available', $product->isAvailableAt($branchId));
+        });
 
         $categories = Category::all();
+        $branches = Branch::where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
         // Return JSON for AJAX requests (infinite scroll) - hanya untuk request dengan page parameter.
         // Exclude Inertia visits (X-Inertia header) since axios also sets X-Requested-With.
         if (!$request->header('X-Inertia') && ($request->wantsJson() || $request->ajax()) && $request->has('page') && $request->page > 1) {
             return response()->json([
                 'products' => $products->items(),
+                'selectedBranch' => $branchId,
+                'branches' => $branches,
                 'pagination' => [
                     'current_page' => $products->currentPage(),
                     'last_page' => $products->lastPage(),
@@ -58,6 +71,8 @@ class ProductController extends Controller
         return Inertia::render('admin/products/index', [
             "products" => $products->items(),
             "categories" => $categories,
+            "branches" => $branches,
+            "selectedBranch" => $branchId,
             "pagination" => [
                 'current_page' => $products->currentPage(),
                 'last_page' => $products->lastPage(),
@@ -188,6 +203,40 @@ class ProductController extends Controller
         }
 
         return redirect()->route('products.index')->with('success', 'Product updated successfully.');
+    }
+
+    public function updateAvailability(Request $request, Product $product)
+    {
+        $data = $request->validate([
+            'is_available' => ['required', 'boolean'],
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
+        $branchId = isset($data['branch_id']) ? (int) $data['branch_id'] : null;
+
+        if ($branchId !== null) {
+            abort_unless(Branch::whereKey($branchId)->where('is_active', true)->exists(), 422, 'Select an active branch.');
+        }
+
+        DB::transaction(function () use ($product, $branchId, $data): void {
+            $lockedProduct = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+
+            if ($branchId === null) {
+                $lockedProduct->update(['is_available' => $data['is_available']]);
+
+                return;
+            }
+
+            $now = now();
+            DB::table('branch_product_availability')->upsert([[
+                'branch_id' => $branchId,
+                'product_id' => $lockedProduct->id,
+                'is_available' => $data['is_available'],
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]], ['branch_id', 'product_id'], ['is_available', 'updated_at']);
+        });
+
+        return back()->with('success', 'Product availability updated.');
     }
 
     /**

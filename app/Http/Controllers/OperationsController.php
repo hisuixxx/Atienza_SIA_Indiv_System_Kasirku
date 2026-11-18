@@ -76,22 +76,6 @@ class OperationsController extends Controller
         return Inertia::render('admin/operations/index', ['module' => 'handoff', 'title' => 'Order handoff', 'branches' => $branches, 'selectedBranch' => $selectedBranch, 'orders' => $this->serializeOrders($orders)]);
     }
 
-    public function inventory(Request $request)
-    {
-        [$branches, $selectedBranch] = $this->branchData($request);
-        $branchId = $selectedBranch ?: $branches->first()?->id;
-        $ingredients = DB::table('ingredients')->leftJoin('inventory', function ($join) use ($branchId) {
-            $join->on('ingredients.id', '=', 'inventory.ingredient_id')->where('inventory.branch_id', '=', $branchId ?? 0);
-        })->select('ingredients.*', DB::raw('COALESCE(inventory.quantity, 0) as stock'))->where('ingredients.is_active', true)->orderBy('ingredients.name')->get();
-
-        $products = DB::table('products')->where('is_active', true)->orderBy('name')->get(['id', 'name']);
-        $recipes = DB::table('product_recipes')->join('ingredients', 'product_recipes.ingredient_id', '=', 'ingredients.id')->get(['product_recipes.product_id', 'product_recipes.ingredient_id', 'product_recipes.quantity', 'ingredients.name as ingredient_name', 'ingredients.unit']);
-        $suppliers = DB::table('suppliers')->where('is_active', true)->orderBy('name')->get(['id', 'name']);
-        $history = DB::table('inventory_transactions')->join('ingredients', 'inventory_transactions.ingredient_id', '=', 'ingredients.id')->leftJoin('users', 'inventory_transactions.user_id', '=', 'users.id')->where('inventory_transactions.branch_id', $branchId ?? 0)->latest('inventory_transactions.created_at')->limit(30)->get(['inventory_transactions.*', 'ingredients.name as ingredient_name', 'users.name as employee_name']);
-
-        return Inertia::render('admin/operations/index', ['module' => 'inventory', 'title' => 'Inventory', 'branches' => $branches, 'selectedBranch' => $branchId, 'ingredients' => $ingredients, 'products' => $products, 'recipes' => $recipes, 'suppliers' => $suppliers, 'history' => $history]);
-    }
-
     public function branches(Request $request)
     {
         abort_unless($request->user()->role === 'administrator', 403);
@@ -421,83 +405,6 @@ class OperationsController extends Controller
         });
 
         return back()->with('success', 'Manual refund processing recorded.');
-    }
-
-    public function restock(Request $request)
-    {
-        $this->authorizeRoles($request, ['administrator', 'branch_manager', 'inventory_staff']);
-        $data = $request->validate([
-            'branch_id' => 'required|exists:branches,id',
-            'ingredient_id' => 'required|exists:ingredients,id',
-            'quantity' => 'required|numeric|min:0.001',
-            'supplier_id' => 'nullable|exists:suppliers,id',
-            'unit_cost' => 'nullable|numeric|min:0',
-            'request_key' => 'required|uuid',
-            'remarks' => 'nullable|string|max:500',
-        ]);
-        abort_unless($this->isAdministrator($request->user()) || $request->user()->branches()->whereKey($data['branch_id'])->exists(), 403);
-        abort_unless(Branch::whereKey($data['branch_id'])->where('is_active', true)->exists(), 422, 'Cannot restock an inactive branch.');
-        if (DB::table('restocks')->where('request_key', $data['request_key'])->exists()) {
-            return back()->with('success', 'This restock was already recorded.');
-        }
-
-        DB::transaction(function () use ($request, $data): void {
-            $restockId = DB::table('restocks')->insertGetId([
-                'branch_id' => $data['branch_id'], 'ingredient_id' => $data['ingredient_id'],
-                'supplier_id' => $data['supplier_id'] ?? null, 'user_id' => $request->user()->id,
-                'quantity' => $data['quantity'], 'unit_cost' => $data['unit_cost'] ?? 0,
-                'total_cost' => $data['quantity'] * ($data['unit_cost'] ?? 0),
-                'request_key' => $data['request_key'], 'remarks' => $data['remarks'] ?? null,
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
-            $stock = DB::table('inventory')->where('branch_id', $data['branch_id'])->where('ingredient_id', $data['ingredient_id'])->lockForUpdate()->first();
-            if ($stock) {
-                DB::table('inventory')->where('id', $stock->id)->increment('quantity', $data['quantity']);
-            } else {
-                DB::table('inventory')->insert(['branch_id' => $data['branch_id'], 'ingredient_id' => $data['ingredient_id'], 'quantity' => $data['quantity'], 'created_at' => now(), 'updated_at' => now()]);
-            }
-            DB::table('inventory_transactions')->insert([
-                'branch_id' => $data['branch_id'], 'ingredient_id' => $data['ingredient_id'], 'user_id' => $request->user()->id,
-                'order_id' => null,
-                'type' => 'restock', 'quantity' => $data['quantity'], 'unit_cost' => $data['unit_cost'] ?? 0, 'remarks' => $data['remarks'] ?? null,
-                'reference' => 'RS-'.$restockId, 'created_at' => now(), 'updated_at' => now(),
-            ]);
-        });
-
-        return back()->with('success', 'Stock updated and movement recorded.');
-    }
-
-    public function createIngredient(Request $request)
-    {
-        abort_unless($request->user()->role === 'administrator', 403);
-        $data = $request->validate(['name' => 'required|string|max:255|unique:ingredients,name', 'unit' => 'required|string|max:32', 'minimum_stock' => 'required|numeric|min:0']);
-        DB::table('ingredients')->insert($data + ['created_at' => now(), 'updated_at' => now()]);
-
-        return back()->with('success', 'Ingredient added to the catalog.');
-    }
-
-    public function saveRecipe(Request $request, string $product)
-    {
-        abort_unless($request->user()->role === 'administrator', 403);
-        abort_unless(DB::table('products')->where('id', $product)->exists(), 404);
-        $data = $request->validate(['ingredients' => 'present|array', 'ingredients.*.ingredient_id' => 'required|exists:ingredients,id', 'ingredients.*.quantity' => 'required|numeric|gt:0']);
-        DB::transaction(function () use ($product, $data): void {
-            DB::table('product_recipes')->where('product_id', $product)->delete();
-            foreach ($data['ingredients'] as $row) {
-                DB::table('product_recipes')->insert(['product_id' => $product, 'ingredient_id' => $row['ingredient_id'], 'quantity' => $row['quantity'], 'created_at' => now(), 'updated_at' => now()]);
-            }
-        });
-
-        return back()->with('success', 'Recipe saved.');
-    }
-
-    public function storeSupplier(Request $request)
-    {
-        abort_unless($request->user()->role === 'administrator' || $request->user()->role === 'inventory_staff', 403);
-        $data = $request->validate(['name' => 'required|string|max:255', 'phone' => 'nullable|string|max:32', 'email' => 'nullable|email|max:255', 'address' => 'nullable|string|max:255']);
-        DB::table('suppliers')->insert($data + ['is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
-
-        return back()->with('success', 'Supplier added.');
     }
 
     public function updateEmployee(Request $request, int $employee)

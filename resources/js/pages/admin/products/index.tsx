@@ -24,6 +24,8 @@ interface ProductFormData {
 interface Props {
     products: Product[];
     categories: Category[];
+    branches: { id: number; name: string }[];
+    selectedBranch: number | null;
     pagination?: Pagination;
 }
 
@@ -38,7 +40,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
-export default function ProductsIndex({ products: initialProducts, categories, pagination }: Props) {
+export default function ProductsIndex({ products: initialProducts, categories, branches, selectedBranch, pagination }: Props) {
     // State
     const [products, setProducts] = useState<Product[]>(initialProducts);
     const [searchTerm, setSearchTerm] = useState('');
@@ -101,6 +103,9 @@ export default function ProductsIndex({ products: initialProducts, categories, p
                 page: (currentPage + 1).toString(),
             });
 
+            if (selectedBranch) {
+                params.append('branch_id', String(selectedBranch));
+            }
             if (debouncedSearchTerm) {
                 params.append('search', debouncedSearchTerm);
             }
@@ -128,7 +133,18 @@ export default function ProductsIndex({ products: initialProducts, categories, p
         } finally {
             setIsLoadingMore(false);
         }
-    }, [currentPage, hasMorePages, isLoadingMore, debouncedSearchTerm, categoryFilter]);
+    }, [currentPage, hasMorePages, isLoadingMore, debouncedSearchTerm, categoryFilter, selectedBranch]);
+
+    const toggleAvailability = (product: Product) => {
+        router.patch(
+            `/admin/products/${product.id}/availability`,
+            {
+                is_available: !product.is_available,
+                ...(selectedBranch ? { branch_id: selectedBranch } : {}),
+            },
+            { preserveScroll: true },
+        );
+    };
 
     // Intersection Observer for infinite scroll
     useEffect(() => {
@@ -497,6 +513,33 @@ export default function ProductsIndex({ products: initialProducts, categories, p
                             ))}
                         </SelectContent>
                     </Select>
+
+                    <Select
+                        value={selectedBranch?.toString() ?? 'all'}
+                        onValueChange={(value) =>
+                            router.get(
+                                '/admin/products',
+                                {
+                                    ...(value !== 'all' ? { branch_id: value } : {}),
+                                    ...(debouncedSearchTerm ? { search: debouncedSearchTerm } : {}),
+                                    ...(categoryFilter && categoryFilter !== 'all' ? { category: categoryFilter } : {}),
+                                },
+                                { preserveState: true, preserveScroll: true },
+                            )
+                        }
+                    >
+                        <SelectTrigger className="w-[220px]" aria-label="Availability branch">
+                            <SelectValue placeholder="All branches" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Default for all branches</SelectItem>
+                            {branches.map((branch) => (
+                                <SelectItem key={branch.id} value={branch.id.toString()}>
+                                    {branch.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
 
                 {/* Products Grid */}
@@ -539,6 +582,20 @@ export default function ProductsIndex({ products: initialProducts, categories, p
                                 <div className="flex items-center justify-between">
                                     <Badge variant="secondary">{product.category?.name}</Badge>
                                     <span className="text-lg font-semibold text-green-600">{formatCurrency(product.price)}</span>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between gap-2">
+                                    <Badge variant={product.is_available ? 'default' : 'destructive'}>
+                                        {product.is_available ? 'Available' : 'Unavailable'}
+                                    </Badge>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => toggleAvailability(product)}
+                                        aria-label={`${product.is_available ? 'Mark unavailable' : 'Mark available'}: ${product.name}`}
+                                    >
+                                        Mark {product.is_available ? 'unavailable' : 'available'}
+                                    </Button>
                                 </div>
                             </CardHeader>
 

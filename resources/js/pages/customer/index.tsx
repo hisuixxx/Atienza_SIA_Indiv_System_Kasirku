@@ -23,11 +23,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 interface Props {
     products: Product[];
     categories: Category[];
+    branches: { id: number; name: string }[];
+    selectedBranch: number | null;
     pagination?: Pagination;
     selectedProduct?: Product;
 }
 
-export default function CustomerIndex({ products: initialProducts, categories, pagination, selectedProduct: initialSelectedProduct }: Props) {
+export default function CustomerIndex({ products: initialProducts, categories, branches, selectedBranch, pagination, selectedProduct: initialSelectedProduct }: Props) {
     const { auth } = usePage<{ auth?: { user?: any } }>().props;
     const user = auth?.user;
 
@@ -117,6 +119,9 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                 page: (currentPage + 1).toString(),
             });
 
+            if (selectedBranch) {
+                params.append('branch_id', String(selectedBranch));
+            }
             if (debouncedSearchTerm) {
                 params.append('search', debouncedSearchTerm);
             }
@@ -143,7 +148,7 @@ export default function CustomerIndex({ products: initialProducts, categories, p
         } finally {
             setIsLoadingMore(false);
         }
-    }, [currentPage, hasMorePages, isLoadingMore, debouncedSearchTerm, categoryFilter]);
+    }, [currentPage, hasMorePages, isLoadingMore, debouncedSearchTerm, categoryFilter, selectedBranch]);
 
     // Intersection Observer for infinite scroll
     useEffect(() => {
@@ -223,6 +228,12 @@ export default function CustomerIndex({ products: initialProducts, categories, p
 
     // Authentication Guard for Ordering
     const handleOrderClick = (product: Product) => {
+        if (!product.is_available) {
+            setOrderSuccessToast(`${product.name} is unavailable at this branch.`);
+            setTimeout(() => setOrderSuccessToast(null), 3000);
+            return;
+        }
+
         if (!user) {
             // Unauthenticated: redirect to login with target redirect back to menu
             router.visit(`/login?redirect=${encodeURIComponent('/menu')}`);
@@ -236,6 +247,12 @@ export default function CustomerIndex({ products: initialProducts, categories, p
     // Confirm Order in Modal
     const handleConfirmOrder = () => {
         if (!customizingProduct) return;
+        if (!customizingProduct.is_available) {
+            setIsCustomizeOpen(false);
+            setOrderSuccessToast(`${customizingProduct.name} is unavailable at this branch.`);
+            setTimeout(() => setOrderSuccessToast(null), 3000);
+            return;
+        }
 
         // Build options summary
         const optionsList = Object.entries(selectedOptions).map(([customizationId, option]) => {
@@ -522,9 +539,39 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                                 )}
                             </div>
 
-                            {/* Category Quick Count */}
-                            <div className="text-xs font-medium text-[#8d7e73]">
-                                Showing <span className="font-semibold text-[#33231d]">{filteredProducts.length}</span> signature drinks & treats
+                            <div className="flex flex-wrap items-center gap-3">
+                                <label className="flex items-center gap-2 text-xs font-medium text-[#8d7e73]">
+                                    Ordering from
+                                    <select
+                                        aria-label="Menu branch"
+                                        className="rounded-xl border border-[#dfd2c4] bg-[#fffefa] px-3 py-2 text-sm text-[#33231d]"
+                                        value={selectedBranch ?? ''}
+                                        onChange={(event) => {
+                                            const branchId = event.target.value;
+                                        setIsCustomizeOpen(false);
+                                        setCustomizingProduct(null);
+                                            router.get(
+                                                '/menu',
+                                                {
+                                                    ...(branchId ? { branch_id: branchId } : {}),
+                                                    ...(searchTerm ? { search: searchTerm } : {}),
+                                                    ...(categoryFilter !== 'all' ? { category: categoryFilter } : {}),
+                                                },
+                                                { preserveState: true, preserveScroll: true },
+                                            );
+                                        }}
+                                    >
+                                        {!branches.length && <option value="">Default availability</option>}
+                                        {branches.map((branch) => (
+                                            <option key={branch.id} value={branch.id}>
+                                                {branch.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <div className="text-xs font-medium text-[#8d7e73]">
+                                    Showing <span className="font-semibold text-[#33231d]">{filteredProducts.length}</span> signature drinks & treats
+                                </div>
                             </div>
                         </div>
 
@@ -620,6 +667,13 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                                                         <span>Featured</span>
                                                     </span>
                                                 )}
+                                                <span
+                                                    className={`absolute bottom-2.5 left-2.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                                                        product.is_available ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                                    }`}
+                                                >
+                                                    {product.is_available ? 'Available' : 'Unavailable'}
+                                                </span>
                                             </div>
 
                                             {/* Details */}
@@ -642,11 +696,12 @@ export default function CustomerIndex({ products: initialProducts, categories, p
 
                                             {/* Renamed strictly to "Order" with auth guard check */}
                                             <button
+                                                disabled={!product.is_available}
                                                 onClick={() => handleOrderClick(product)}
-                                                className="inline-flex items-center gap-1.5 rounded-lg bg-[#805840] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#694631] active:scale-95"
+                                                className="inline-flex items-center gap-1.5 rounded-lg bg-[#805840] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#694631] active:scale-95 disabled:cursor-not-allowed disabled:bg-stone-400"
                                             >
                                                 <Coffee size={14} />
-                                                <span>Order</span>
+                                                <span>{product.is_available ? 'Order' : 'Unavailable'}</span>
                                             </button>
                                         </div>
                                     </div>
@@ -805,11 +860,12 @@ export default function CustomerIndex({ products: initialProducts, categories, p
                             <div className="mt-5">
                                 <button
                                     type="button"
+                                    disabled={!customizingProduct.is_available}
                                     onClick={handleConfirmOrder}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#805840] py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[#694631] active:scale-98"
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#805840] py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[#694631] active:scale-98 disabled:cursor-not-allowed disabled:bg-stone-400"
                                 >
                                     <Coffee size={16} />
-                                    <span>Order · {formatCurrency(modalTotalPrice)}</span>
+                                    <span>{customizingProduct.is_available ? `Order · ${formatCurrency(modalTotalPrice)}` : 'Unavailable at this branch'}</span>
                                 </button>
                             </div>
                         </div>

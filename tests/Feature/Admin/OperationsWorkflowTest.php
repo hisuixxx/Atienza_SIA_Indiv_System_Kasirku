@@ -2,13 +2,10 @@
 
 use App\Models\Branch;
 use App\Models\Order;
-use App\Models\OrderItems;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
-use App\Services\InventoryService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 test('kitchen transitions are recorded and cannot skip preparation', function () {
     $branch = Branch::create(['name' => 'Roxas', 'code' => 'ROX']);
@@ -63,37 +60,26 @@ test('handoff completes only paid ready orders and records the employee', functi
     $this->assertDatabaseHas('handoffs', ['order_id' => $order->id, 'user_id' => $cashier->id]);
 });
 
-test('recipe deductions lock stock and are idempotent per order', function () {
+test('orders do not depend on recipe or inventory records and inventory management is disabled', function () {
     $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
-    $staff = User::factory()->create();
+    $admin = User::factory()->admin()->create();
     $product = Product::factory()->create();
-    $ingredientId = DB::table('ingredients')->insertGetId(['name' => 'Milk', 'unit' => 'ml', 'minimum_stock' => 100, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
-    DB::table('inventory')->insert(['branch_id' => $branch->id, 'ingredient_id' => $ingredientId, 'quantity' => 1000, 'created_at' => now(), 'updated_at' => now()]);
-    DB::table('product_recipes')->insert(['product_id' => $product->id, 'ingredient_id' => $ingredientId, 'quantity' => 180, 'created_at' => now(), 'updated_at' => now()]);
-    $order = Order::factory()->create(['branch_id' => $branch->id, 'created_by' => $staff->id, 'order_number' => 'B-8421']);
-    OrderItems::factory()->create(['order_id' => $order->id, 'product_id' => $product->id, 'quantity' => 2]);
+    $this->actingAs($admin)->postJson('/admin/orders', [
+        'customer_name' => 'Walk-in',
+        'branch_id' => $branch->id,
+        'payment_method' => 'cash',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+    ])->assertOk()->assertJson(['success' => true]);
 
-    app(InventoryService::class)->deductForOrder($order);
-    app(InventoryService::class)->deductForOrder($order);
-
-    expect((float) DB::table('inventory')->where('branch_id', $branch->id)->where('ingredient_id', $ingredientId)->value('quantity'))->toBe(640.0);
-    $this->assertDatabaseCount('inventory_transactions', 1);
-});
-
-test('replayed restock requests do not duplicate stock movements', function () {
-    $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
-    $staff = User::factory()->create(['role' => 'inventory_staff']);
-    $staff->branches()->attach($branch->id);
-    $ingredientId = DB::table('ingredients')->insertGetId(['name' => 'Beans', 'unit' => 'g', 'minimum_stock' => 100, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
-    $requestKey = (string) Str::uuid();
-    $payload = ['branch_id' => $branch->id, 'ingredient_id' => $ingredientId, 'quantity' => 500, 'request_key' => $requestKey];
-
-    $this->actingAs($staff)->post(route('admin.inventory.restock'), $payload)->assertRedirect();
-    $this->post(route('admin.inventory.restock'), $payload)->assertRedirect();
-
-    expect((float) DB::table('inventory')->where('branch_id', $branch->id)->where('ingredient_id', $ingredientId)->value('quantity'))->toBe(500.0);
-    $this->assertDatabaseCount('restocks', 1);
-    $this->assertDatabaseCount('inventory_transactions', 1);
+    $order = Order::where('customer_name', 'Walk-in')->firstOrFail();
+    $this->assertDatabaseHas('order_items', ['order_id' => $order->id, 'product_id' => $product->id]);
+    $this->assertDatabaseCount('inventory_transactions', 0);
+    $this->get('/admin/orders')->assertInertia(fn ($page) => $page
+        ->where('orders.data.0.id', $order->id)
+        ->where('orders.data.0.order_items.0.product.id', $product->id)
+    );
+    $this->get('/admin/inventory')->assertNotFound();
+    $this->post('/admin/inventory/restock')->assertNotFound();
 });
 
 test('sales report subtracts processed refunds from collections', function () {

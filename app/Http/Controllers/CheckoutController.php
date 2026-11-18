@@ -7,7 +7,6 @@ use App\Models\Order;
 use App\Models\OrderItems;
 use App\Models\Payment;
 use App\Models\Product;
-use App\Services\InventoryService;
 use App\Services\MidtransService;
 use App\Services\OrderStatusService;
 use Illuminate\Http\Request;
@@ -34,11 +33,24 @@ class CheckoutController extends Controller
         $request->validate([
             'customer_name' => 'required|string|max:255',
             'table_number' => 'required|integer|min:1',
+            'branch_id' => 'nullable|integer|exists:branches,id',
             'cart' => 'required|array|min:1',
             'cart.*.product.id' => 'required|exists:products,id',
             'cart.*.quantity' => 'required|integer|min:1',
             'cart.*.notes' => 'nullable|string|max:255',
         ]);
+
+        $requestedBranchId = $request->input('branch_id') ?? $request->session()->get('customer_branch_id');
+        $branchId = $requestedBranchId
+            ? Branch::whereKey($requestedBranchId)->where('is_active', true)->value('id')
+            : null;
+        if ($requestedBranchId && ! $branchId) {
+            throw ValidationException::withMessages(['branch_id' => 'Select an active branch.']);
+        }
+        $branchId ??= Branch::where('is_active', true)->orderBy('id')->value('id');
+        if ($branchId) {
+            $request->session()->put('customer_branch_id', $branchId);
+        }
 
         try {
             DB::beginTransaction();
@@ -64,7 +76,12 @@ class CheckoutController extends Controller
 
             // Create order items and calculate subtotal
             foreach ($request->cart as $cartItem) {
-                $product = Product::whereKey($cartItem['product']['id'])->where('is_active', true)->firstOrFail();
+                $product = Product::whereKey($cartItem['product']['id'])->lockForUpdate()->first();
+                if (! $product || ! $product->isAvailableAt($branchId ? (int) $branchId : null)) {
+                    throw ValidationException::withMessages([
+                        'cart' => ($product?->name ?? 'A cart item').' is unavailable at the selected branch.',
+                    ]);
+                }
                 $itemSubtotal = $product->price * $cartItem['quantity'];
 
                 OrderItems::create([
@@ -78,8 +95,6 @@ class CheckoutController extends Controller
 
                 $subtotalAmount += $itemSubtotal;
             }
-
-            // app(InventoryService::class)->deductForOrder($order);
 
             // Calculate tax and total amount, rounded to whole IDR so the amount
             // charged via Midtrans matches what's stored/printed (no truncation).

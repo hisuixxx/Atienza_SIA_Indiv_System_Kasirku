@@ -110,12 +110,6 @@ class DashboardController extends Controller
             'id' => $branch->id, 'name' => $branch->name, 'sales' => (float) $branch->sales, 'orders' => (int) $branch->orders,
             'share' => $branchGross > 0 ? round(((float) $branch->sales / $branchGross) * 100, 1) : 0,
         ]);
-        $needsAttention = DB::table('inventory')->join('ingredients', 'inventory.ingredient_id', '=', 'ingredients.id')->join('branches', 'inventory.branch_id', '=', 'branches.id')
-            ->where('ingredients.is_active', true)->whereColumn('inventory.quantity', '<=', 'ingredients.minimum_stock')
-            ->when($branchId, fn ($query) => $query->where('inventory.branch_id', $branchId))
-            ->orderBy('inventory.quantity')->limit(8)->get(['ingredients.name as ingredient', 'ingredients.unit', 'inventory.quantity', 'ingredients.minimum_stock', 'branches.name as branch'])
-            ->map(fn ($item) => ['ingredient' => $item->ingredient, 'unit' => $item->unit, 'quantity' => (float) $item->quantity, 'minimum_stock' => (float) $item->minimum_stock, 'branch' => $item->branch]);
-
         return Inertia::render('admin/dashboard/index', [
             'stats' => [
                 'total_revenue' => (float) $scopePayments(Payment::query())->where('status', 'completed')->sum('amount'),
@@ -139,7 +133,6 @@ class DashboardController extends Controller
             'selectedBranch' => $branchId,
             'filters' => ['period' => $period, 'start_date' => $start, 'end_date' => $end],
             'branchPerformance' => $branchPerformance,
-            'needsAttention' => $needsAttention,
             'pendingPayments' => $scopePayments(Payment::query())->where('status', 'pending')->count(),
         ]);
     }

@@ -23,10 +23,9 @@ interface TopProduct { id: string; name: string; quantity_sold: number; revenue:
 interface RecentOrder { id: number; order_number: string | null; branch_name: string | null; customer_name: string | null; status: string; total: number; created_at: string }
 interface BranchOption { id: number; name: string; code: string }
 interface BranchPerformance { id: number; name: string; sales: number; orders: number; share: number }
-interface StockAlert { ingredient: string; unit: string; quantity: number; minimum_stock: number; branch: string }
 interface RevenuePoint { date: string; revenue: number }
 interface OrderStatusPoint { status: 'pending' | 'completed' | 'cancelled'; label: string; count: number }
-interface Props { stats: Stats; topProducts: TopProduct[]; recentOrders: RecentOrder[]; revenueTrend: RevenuePoint[]; ordersByStatus: OrderStatusPoint[]; branches: BranchOption[]; selectedBranch: number | null; filters: { period: string; start_date: string; end_date: string }; branchPerformance: BranchPerformance[]; needsAttention: StockAlert[]; pendingPayments: number }
+interface Props { stats: Stats; topProducts: TopProduct[]; recentOrders: RecentOrder[]; revenueTrend: RevenuePoint[]; ordersByStatus: OrderStatusPoint[]; branches: BranchOption[]; selectedBranch: number | null; filters: { period: string; start_date: string; end_date: string }; branchPerformance: BranchPerformance[]; pendingPayments: number }
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Overview', href: '/admin/dashboard' }];
 const statusStyle: Record<string, string> = {
@@ -37,7 +36,7 @@ function Metric({ label, value, hint, icon: Icon, tone }: { label: string; value
     return <article className="brew-metric"><div className="flex items-start justify-between"><p className="brew-overline">{label}</p><span className={`brew-icon ${tone}`}><Icon size={18} /></span></div><p className="mt-3 text-[1.8rem] font-semibold tracking-tight text-[#33251f]">{value}</p><p className="mt-1 text-xs text-[#8b7b71]">{hint}</p></article>;
 }
 
-export default function Dashboard({ stats, topProducts, recentOrders, revenueTrend, ordersByStatus, branches, selectedBranch, filters, branchPerformance, needsAttention, pendingPayments }: Props) {
+export default function Dashboard({ stats, topProducts, recentOrders, revenueTrend, ordersByStatus, branches, selectedBranch, filters, branchPerformance, pendingPayments }: Props) {
     const activeOrders = stats.active_orders;
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -68,7 +67,7 @@ export default function Dashboard({ stats, topProducts, recentOrders, revenueTre
                 </section>
                 <section className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
                     <article className="brew-panel"><div className="brew-panel-heading"><div><h2>Branch performance</h2><p>Collections and share in the selected date range</p></div></div>{branchPerformance.length ? <div className="mt-4 space-y-4">{branchPerformance.map(branch => <div key={branch.id}><div className="flex items-center justify-between gap-2 text-xs"><span className="font-semibold text-[#49372d]">{branch.name} <small className="font-normal text-[#8d7e73]">· {branch.orders} orders</small></span><span className="font-semibold">{formatCurrency(branch.sales)} <small className="font-normal text-[#8d7e73]">{branch.share}%</small></span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#eee5da]"><div className="h-full rounded-full bg-[#805840]" style={{ width: `${Math.min(branch.share, 100)}%` }} /></div></div>)}</div> : <div className="brew-empty"><ShoppingBag size={22} /><p>No paid orders in this range.</p></div>}</article>
-                    <article className="brew-panel"><div className="brew-panel-heading"><div><h2>Needs attention</h2><p>{needsAttention.length} low or out-of-stock ingredient balances · {pendingPayments} pending payments</p></div></div>{needsAttention.length ? <div className="mt-3 divide-y divide-[#f0ebe5]">{needsAttention.map((item, index) => <div className="flex items-center justify-between gap-2 py-3" key={`${item.ingredient}-${item.branch}-${index}`}><div><p className="text-sm font-semibold text-[#49372d]">{item.ingredient}</p><p className="text-xs text-[#8d7e73]">{item.branch} · {item.quantity} {item.unit} remaining</p></div><span className={`brew-pill ${item.quantity <= 0 ? 'brew-pill-red' : 'brew-pill-gold'}`}>{item.quantity <= 0 ? 'Out of stock' : 'Low stock'}</span></div>)}</div> : <div className="brew-empty"><CheckCircle2 size={22} /><p>Stock levels are above their minimums.</p></div>}<Link href="/admin/inventory" className="brew-text-link">Review inventory <ArrowRight size={14} /></Link></article>
+                    <article className="brew-panel"><div className="brew-panel-heading"><div><h2>Pending payments</h2><p>{pendingPayments} payments need review</p></div></div><div className="brew-empty"><Wallet size={22} /><p>Payment verification is available from the payments workspace.</p></div><Link href="/admin/payments" className="brew-text-link">Review payments <ArrowRight size={14} /></Link></article>
                 </section>
             </main>
         </AppLayout>

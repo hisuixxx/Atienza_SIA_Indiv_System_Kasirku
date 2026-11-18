@@ -80,6 +80,7 @@ Route::prefix('admin')
         // Products & Categories
         Route::resource('categories', CategoryController::class);
         Route::resource('products', ProductController::class);
+        Route::patch('products/{product}/availability', [ProductController::class, 'updateAvailability'])->name('products.availability');
 
         // Reports
         Route::get('reports', [OperationsController::class, 'reports'])->name('admin.reports');
@@ -117,13 +118,6 @@ Route::prefix('admin')
         Route::post('refunds/{refund}/review', [OperationsController::class, 'reviewRefund'])->name('admin.refunds.review');
         Route::post('refunds/{refund}/process', [OperationsController::class, 'markRefundProcessed'])->name('admin.refunds.process');
         Route::post('cancellations/{cancellation}/review', [OperationsController::class, 'reviewCancellation'])->name('admin.cancellations.review');
-    });
-
-Route::prefix('admin')
-    ->middleware(['auth', 'active', 'role:admin,administrator,branch_manager,inventory_staff'])
-    ->group(function () {
-        Route::get('inventory', [OperationsController::class, 'inventory'])->name('admin.inventory');
-        Route::post('inventory/restock', [OperationsController::class, 'restock'])->name('admin.inventory.restock');
     });
 
 // =====================================================

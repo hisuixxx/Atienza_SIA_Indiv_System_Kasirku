@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -45,15 +46,40 @@ class Product extends Model
             if (!isset($product->is_available) && isset($product->is_active)) {
                 $product->is_available = $product->is_active;
             }
-            if (!isset($product->is_active) && isset($product->is_available)) {
-                $product->is_active = $product->is_available;
-            }
         });
     }
 
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function branches(): BelongsToMany
+    {
+        return $this->belongsToMany(Branch::class, 'branch_product_availability')
+            ->withPivot('is_available')
+            ->withTimestamps();
+    }
+
+    public function isAvailableAt(?int $branchId): bool
+    {
+        if (! $this->is_active) {
+            return false;
+        }
+
+        if ($branchId === null) {
+            return (bool) $this->is_available;
+        }
+
+        if ($this->relationLoaded('branches')) {
+            $branch = $this->branches->firstWhere('id', $branchId);
+
+            return $branch ? (bool) $branch->pivot->is_available : (bool) $this->is_available;
+        }
+
+        $branch = $this->branches()->whereKey($branchId)->first(['branches.id']);
+
+        return $branch ? (bool) $branch->pivot->is_available : (bool) $this->is_available;
     }
 
     public function photos(): HasMany

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Order;
 use App\Models\Payment;
@@ -140,6 +141,28 @@ class CheckoutAndOrdersTest extends TestCase
         $this->assertEquals(370.00, (float) $order->total_amount); // 320 + 50
 
         $response->assertRedirect(route('orders.show', $order->order_number));
+    }
+
+    public function test_customer_checkout_rejects_products_unavailable_at_the_selected_branch(): void
+    {
+        $user = User::factory()->create();
+        $product = $this->setupCartWithProduct($user);
+        $branch = Branch::create(['name' => 'North', 'code' => 'NORTH']);
+        $product->branches()->attach($branch->id, ['is_available' => false]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['customer_branch_id' => $branch->id])
+            ->from(route('checkout.index'))
+            ->post(route('checkout.process'), [
+                'customer_name' => 'Coffee Buyer',
+                'customer_phone' => '0917-111-2222',
+                'order_type' => 'pickup',
+                'payment_method' => 'cash_on_pickup',
+            ]);
+
+        $response->assertRedirect(route('checkout.index'));
+        $response->assertSessionHasErrors('cart');
+        $this->assertDatabaseCount('orders', 0);
     }
 
     public function test_customer_can_view_order_history_and_tracker(): void

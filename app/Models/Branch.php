@@ -31,4 +31,11 @@ class Branch extends Model
     {
         return $this->hasMany(Order::class);
     }
+
+    public function products(): BelongsToMany
+    {
+        return $this->belongsToMany(Product::class, 'branch_product_availability')
+            ->withPivot('is_available')
+            ->withTimestamps();
+    }
 }

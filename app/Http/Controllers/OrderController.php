@@ -8,7 +8,6 @@ use App\Models\Order;
 use App\Models\OrderItems;
 use App\Models\Payment;
 use App\Models\Product;
-use App\Services\InventoryService;
 use App\Services\OrderStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -135,14 +134,10 @@ class OrderController extends Controller
         $branches = $this->isAdministrator($user) ? Branch::where('is_active', true)->orderBy('name')->get() : $user->branches()->where('is_active', true)->orderBy('name')->get();
         $selectedBranch = request()->integer('branch_id') ?: $branches->first()?->id;
         abort_unless(! $selectedBranch || $branches->contains('id', $selectedBranch), 403);
-        $availability = DB::table('product_recipes')->leftJoin('inventory', function ($join) use ($selectedBranch) {
-            $join->on('product_recipes.ingredient_id', '=', 'inventory.ingredient_id')->where('inventory.branch_id', '=', $selectedBranch ?? 0);
-        })->select('product_recipes.product_id')->selectRaw('SUM(CASE WHEN inventory.id IS NULL OR inventory.quantity < product_recipes.quantity THEN 1 ELSE 0 END) as unavailable')
-            ->groupBy('product_recipes.product_id')->get()->keyBy('product_id');
-        $products = Product::with(['category:id,name', 'photos:id,product_id,url,is_primary'])->where('is_active', true)->orderBy('name')->get()->map(fn (Product $product) => [
+        $products = Product::with(['category:id,name', 'photos:id,product_id,url,is_primary', 'branches:id'])->where('is_active', true)->orderBy('name')->get()->map(fn (Product $product) => [
             'id' => $product->id, 'name' => $product->name, 'description' => $product->description,
             'category' => $product->category?->name ?? 'Other', 'price' => (float) $product->price,
-            'available' => ! isset($availability[$product->id]) || (int) $availability[$product->id]->unavailable === 0,
+            'available' => $product->isAvailableAt($selectedBranch ? (int) $selectedBranch : null),
             'image' => $product->photos->firstWhere('is_primary', true)?->url ?? $product->photos->first()?->url,
         ]);
 
@@ -174,12 +169,25 @@ class OrderController extends Controller
         DB::beginTransaction();
 
         try {
+            $branchId = $request->input('branch_id');
+            $branchId ??= $request->user()->branches()->value('branches.id');
+            abort_unless(! $branchId || Branch::whereKey($branchId)->where('is_active', true)->exists(), 422, 'Selected branch is inactive.');
+            if (! $this->isAdministrator($request->user())) {
+                abort_unless($request->user()->branches()->whereKey($branchId)->exists(), 403);
+            }
+            abort_unless(in_array($request->user()->role, ['admin', 'administrator', 'branch_manager', 'cashier', 'staff'], true), 403);
+
             // Calculate total amount
             $subtotalAmount = 0;
             $validatedItems = [];
 
             foreach ($request->items as $item) {
-                $product = Product::whereKey($item['product_id'])->where('is_active', true)->firstOrFail();
+                $product = Product::whereKey($item['product_id'])->lockForUpdate()->first();
+                if (! $product || ! $product->isAvailableAt($branchId ? (int) $branchId : null)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'items' => ($product?->name ?? 'A selected product').' is unavailable at the selected branch.',
+                    ]);
+                }
                 $subtotal = $product->price * $item['quantity'];
                 $subtotalAmount += $subtotal;
 
@@ -197,13 +205,6 @@ class OrderController extends Controller
             $totalAmount = $subtotalAmount + $taxAmount;
 
             // Create order
-            $branchId = $request->input('branch_id');
-            $branchId ??= $request->user()->branches()->value('branches.id');
-            abort_unless(! $branchId || Branch::whereKey($branchId)->where('is_active', true)->exists(), 422, 'Selected branch is inactive.');
-            if (! $this->isAdministrator($request->user())) {
-                abort_unless($request->user()->branches()->whereKey($branchId)->exists(), 403);
-            }
-            abort_unless(in_array($request->user()->role, ['admin', 'administrator', 'branch_manager', 'cashier', 'staff'], true), 403);
             $order = Order::create([
                 'branch_id' => $branchId,
                 'order_number' => $this->generateOrderNumber(),
@@ -227,8 +228,6 @@ class OrderController extends Controller
                     'notes' => $item['notes'],
                 ]);
             }
-
-            app(InventoryService::class)->deductForOrder($order);
 
             // Create payment record
             $payment = Payment::create([
@@ -257,6 +256,9 @@ class OrderController extends Controller
             return redirect()->route('orders.index')->with('success', 'Order berhasil dibuat!');
         } catch (\Exception $e) {
             DB::rollback();
+            if ($e instanceof \Illuminate\Validation\ValidationException) {
+                throw $e;
+            }
 
             // Return JSON error for AJAX requests
             if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {

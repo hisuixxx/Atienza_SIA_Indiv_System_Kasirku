@@ -2,6 +2,7 @@
 
 use App\Models\Order;
 use App\Models\OrderItems;
+use App\Models\Branch;
 use App\Models\Product;
 use App\Models\User;
 
@@ -82,6 +83,38 @@ test('admin can create a cash order with correct tax calculation', function () {
     expect($order->payment->payment_method)->toBe('cash');
     expect($order->orderItems)->toHaveCount(1);
     expect((float) $order->orderItems->first()->subtotal)->toBe((float) $subtotal);
+});
+
+test('POS rejects a product unavailable at the submitted branch', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $product = Product::factory()->create();
+    $product->branches()->attach($branch->id, ['is_available' => false]);
+
+    $this->postJson('/admin/orders', [
+        'customer_name' => 'Walk-in',
+        'branch_id' => $branch->id,
+        'payment_method' => 'cash',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+    ])->assertUnprocessable()->assertJsonValidationErrors('items');
+
+    $this->assertDatabaseCount('orders', 0);
+});
+
+test('POS accepts a product explicitly available at a branch', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
+    $product = Product::factory()->create(['is_available' => false]);
+    $product->branches()->attach($branch->id, ['is_available' => true]);
+
+    $this->postJson('/admin/orders', [
+        'customer_name' => 'Walk-in',
+        'branch_id' => $branch->id,
+        'payment_method' => 'cash',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+    ])->assertOk()->assertJson(['success' => true]);
+
+    $this->assertDatabaseHas('orders', ['customer_name' => 'Walk-in', 'branch_id' => $branch->id]);
 });
 
 test('admin can update order status', function () {

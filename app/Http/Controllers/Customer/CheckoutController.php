@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Customer;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\Notification;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
+use App\Models\Product;
 use App\Models\StorefrontSetting;
 use App\Services\OrderStatusService;
 use Illuminate\Http\RedirectResponse;
@@ -73,7 +75,21 @@ class CheckoutController extends Controller
             'receipt_image' => ['required_if:payment_method,gcash', 'nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
         ]);
 
-        return DB::transaction(function () use ($request, $cart) {
+        $branchId = Branch::whereKey(session('customer_branch_id'))
+            ->where('is_active', true)
+            ->value('id');
+        $branchId ??= Branch::where('is_active', true)->orderBy('id')->value('id');
+
+        return DB::transaction(function () use ($request, $cart, $branchId) {
+            foreach ($cart->items as $cartItem) {
+                $product = Product::whereKey($cartItem->product_id)->lockForUpdate()->first();
+                if (! $product || ! $product->isAvailableAt($branchId ? (int) $branchId : null)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'cart' => ($cartItem->product?->name ?? 'A cart item').' is unavailable at the selected branch.',
+                    ]);
+                }
+            }
+
             // Calculate totals
             $subtotal = (float) $cart->items->sum('item_subtotal');
             $deliveryFee = ($request->order_type === 'delivery') ? 50.00 : 0.00;
@@ -86,6 +102,7 @@ class CheckoutController extends Controller
 
             // 1. Create Order
             $order = Order::create([
+                'branch_id' => $branchId,
                 'order_number' => $orderNumber,
                 'user_id' => Auth::id(),
                 'customer_name' => $request->customer_name,

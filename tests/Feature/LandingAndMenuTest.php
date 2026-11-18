@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Category;
+use App\Models\Branch;
 use App\Models\CustomizationOption;
 use App\Models\Product;
 use App\Models\ProductCustomization;
@@ -77,6 +78,19 @@ class LandingAndMenuTest extends TestCase
             ->has('products')
             ->has('categories')
         );
+    }
+
+    public function test_menu_shows_availability_for_the_selected_branch(): void
+    {
+        $data = $this->createSampleData();
+        $branch = Branch::create(['name' => 'North', 'code' => 'NORTH']);
+        $data['product']->branches()->attach($branch->id, ['is_available' => false]);
+
+        $this->get('/menu?branch_id=' . $branch->id)
+            ->assertInertia(fn ($page) => $page
+                ->where('selectedBranch', $branch->id)
+                ->where('products.0.is_available', false)
+            );
     }
 
     public function test_menu_category_filtering(): void
