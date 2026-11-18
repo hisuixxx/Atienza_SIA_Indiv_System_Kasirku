@@ -95,15 +95,37 @@ export default function OrderStatus({ order: initialOrder }: Props) {
             case 'pending':
                 return {
                     icon: <Clock className="h-8 w-8 text-yellow-500" />,
-                    title: 'Order in Progress',
-                    description: 'Your order is being prepared by the kitchen. Please wait a moment.',
+                    title: 'Order received',
+                    description: 'Your order is waiting for confirmation.',
                     color: 'border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950',
+                };
+            case 'confirmed':
+                return {
+                    icon: <CheckCircle className="h-8 w-8 text-blue-500" />,
+                    title: 'Order confirmed',
+                    description: 'The store has confirmed your order.',
+                    color: 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950',
+                };
+            case 'preparing':
+                return {
+                    icon: <Clock className="h-8 w-8 text-yellow-500" />,
+                    title: 'Order being prepared',
+                    description: 'The kitchen is preparing your order.',
+                    color: 'border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950',
+                };
+            case 'ready':
+            case 'ready_for_pickup':
+                return {
+                    icon: <CheckCircle className="h-8 w-8 text-green-500" />,
+                    title: 'Order ready for pickup',
+                    description: 'Your order is ready. Please pick it up at the cashier.',
+                    color: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950',
                 };
             case 'completed':
                 return {
                     icon: <CheckCircle className="h-8 w-8 text-green-500" />,
-                    title: 'Order Ready for Pickup!',
-                    description: 'Your order is ready. Please pick it up at the cashier and show this page.',
+                    title: 'Order completed',
+                    description: 'Your order has been handed off.',
                     color: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950',
                 };
             case 'cancelled':
@@ -160,9 +182,9 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                             <div className="flex-grow">
                                 <h2 className="text-xl font-bold">{statusInfo.title}</h2>
                                 <p className="text-muted-foreground">{statusInfo.description}</p>
-                                {order.status === 'pending' && (
+                                {['pending', 'confirmed', 'preparing', 'ready', 'ready_for_pickup'].includes(order.status) && (
                                     <p className="mt-2 text-sm text-muted-foreground">
-                                        💡 This page will update automatically. You can also refresh it manually.
+                                        This page updates automatically. You can also refresh it manually.
                                     </p>
                                 )}
                             </div>
@@ -265,6 +287,33 @@ export default function OrderStatus({ order: initialOrder }: Props) {
                                     </div>
                                 </div>
                             ))}
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Order status history</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            {order.status_histories?.map((history, index) => (
+                                <div key={`${history.created_at}-${index}`} className="flex flex-col gap-1 border-b pb-3 last:border-0">
+                                    <p className="font-medium">
+                                        {history.from_status ? `${history.from_status} → ` : ''}
+                                        {history.to_status}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                        {formatDate(history.created_at)} · {history.branch?.name ?? 'Branch'} · {history.user?.name ?? 'System'}
+                                    </p>
+                                    {history.notes && <p className="text-sm text-muted-foreground">{history.notes}</p>}
+                                </div>
+                            ))}
+                            {!order.status_histories?.length && <p className="text-sm text-muted-foreground">No status updates are available yet.</p>}
+                            {order.cancellation && (
+                                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                                    <strong>Cancellation reason:</strong> {order.cancellation.reason}
+                                    {order.cancellation.cancelled_at && <p>{formatDate(order.cancellation.cancelled_at)}</p>}
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
 

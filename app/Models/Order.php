@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Order extends Model
 {
@@ -64,9 +63,19 @@ class Order extends Model
         return $this->hasOne(Payment::class);
     }
 
-    public function statusHistories(): MorphMany
+    public function statusHistories(): HasMany
     {
-        return $this->morphMany(RequestStatusHistory::class, 'trackable')->latest();
+        return $this->hasMany(OrderStatusHistory::class)->latest();
+    }
+
+    public function cancellation(): HasOne
+    {
+        return $this->hasOne(OrderCancellation::class);
+    }
+
+    public function refunds(): HasMany
+    {
+        return $this->hasManyThrough(Refund::class, Payment::class);
     }
 
     public function getTotalPriceAttribute()

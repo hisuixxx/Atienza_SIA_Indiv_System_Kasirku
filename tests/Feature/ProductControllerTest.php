@@ -12,7 +12,7 @@ test('guests cannot access product management', function () {
 });
 
 test('admin can list products with category and photos', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     $category = Category::factory()->create();
     Product::factory()->count(3)->create(['category_id' => $category->id]);
@@ -27,7 +27,7 @@ test('admin can list products with category and photos', function () {
 });
 
 test('product search filters by name', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     Product::factory()->create(['name' => 'Nasi Goreng']);
     Product::factory()->create(['name' => 'Es Teh']);
@@ -42,7 +42,7 @@ test('product search filters by name', function () {
 
 test('admin can create a product with a photo', function () {
     Storage::fake('public');
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $category = Category::factory()->create();
 
     $response = $this->post('/admin/products', [
@@ -62,7 +62,7 @@ test('admin can create a product with a photo', function () {
 
 test('admin can remove a product photo on update', function () {
     Storage::fake('public');
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $product = Product::factory()->create();
     $photo = ProductPhotos::factory()->create(['product_id' => $product->id, 'url' => Storage::url('products/existing.jpg')]);
     Storage::disk('public')->put('products/existing.jpg', 'fake-content');
@@ -79,11 +79,11 @@ test('admin can remove a product photo on update', function () {
 });
 
 test('admin can delete a product', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $product = Product::factory()->create();
 
     $response = $this->delete("/admin/products/{$product->id}");
 
     $response->assertRedirect(route('products.index'));
-    $this->assertDatabaseMissing('products', ['id' => $product->id]);
+    $this->assertSoftDeleted('products', ['id' => $product->id]);
 });

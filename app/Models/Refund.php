@@ -1,0 +1,41 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Refund extends Model
+{
+    protected $guarded = ['id', 'created_at', 'updated_at'];
+
+    protected function casts(): array
+    {
+        return [
+            'amount' => 'decimal:2',
+            'authorized_at' => 'datetime',
+            'processed_at' => 'datetime',
+            'reviewed_at' => 'datetime',
+        ];
+    }
+
+    public function payment(): BelongsTo
+    {
+        return $this->belongsTo(Payment::class);
+    }
+
+    public function requester(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    public function authorizer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'authorized_by');
+    }
+
+    public function processor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'processed_by');
+    }
+}

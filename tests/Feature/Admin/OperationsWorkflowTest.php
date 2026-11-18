@@ -98,7 +98,7 @@ test('replayed restock requests do not duplicate stock movements', function () {
 
 test('sales report subtracts processed refunds from collections', function () {
     $branch = Branch::create(['name' => 'Main', 'code' => 'MAIN']);
-    $admin = User::factory()->create();
+    $admin = User::factory()->admin()->create();
     $order = Order::factory()->create(['branch_id' => $branch->id, 'order_number' => 'B-7621']);
     $payment = Payment::factory()->create(['order_id' => $order->id, 'amount' => 1000, 'payment_method' => 'cash', 'status' => 'completed', 'paid_at' => now()]);
     DB::table('refunds')->insert(['payment_id' => $payment->id, 'amount' => 250, 'reason' => 'Partial refund', 'status' => 'processed_manual', 'processed_at' => now(), 'created_at' => now(), 'updated_at' => now()]);

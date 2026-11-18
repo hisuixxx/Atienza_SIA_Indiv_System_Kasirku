@@ -14,16 +14,14 @@ class AuthTest extends TestCase
     {
         $response = $this->get('/login');
         $response->assertStatus(200);
-        $response->assertSee('Welcome Back');
-        $response->assertSee('Back to Home');
+        $response->assertInertia(fn ($page) => $page->component('auth/login'));
     }
 
     public function test_registration_screen_can_be_rendered(): void
     {
         $response = $this->get('/register');
         $response->assertStatus(200);
-        $response->assertSee('Join BrewSync');
-        $response->assertSee('Back to Home');
+        $response->assertInertia(fn ($page) => $page->component('auth/register'));
     }
 
     public function test_forgot_password_screen_can_be_rendered(): void

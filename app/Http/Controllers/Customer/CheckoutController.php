@@ -9,8 +9,8 @@ use App\Models\Notification;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
-use App\Models\RequestStatusHistory;
 use App\Models\StorefrontSetting;
+use App\Services\OrderStatusService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -26,7 +26,8 @@ class CheckoutController extends Controller
     public function index(): View|RedirectResponse
     {
         if (!Auth::check()) {
-            return redirect()->route('login')->with('error', 'Please log in to proceed to checkout.');
+            return redirect()->guest(route('login', ['redirect' => '/checkout']))
+                ->with('error', 'Please log in to proceed to checkout.');
         }
 
         $cart = Cart::with(['items.product.category'])
@@ -95,6 +96,7 @@ class CheckoutController extends Controller
                 'subtotal' => $subtotal,
                 'delivery_fee' => $deliveryFee,
                 'total_amount' => $totalAmount,
+                'status' => Order::STATUS_PENDING,
                 'order_status' => Order::STATUS_PENDING,
             ]);
 
@@ -119,24 +121,32 @@ class CheckoutController extends Controller
                 $receiptPath = $request->file('receipt_image')->store('receipts', 'public');
             }
 
-            Payment::create([
+            $payment = Payment::create([
                 'order_id' => $order->id,
                 'payment_method' => $request->payment_method,
                 'amount' => $totalAmount,
+                'status' => Payment::STATUS_PENDING,
                 'payment_status' => Payment::STATUS_PENDING, // Never automatically approve payments!
                 'gcash_reference_number' => $request->gcash_reference_number,
                 'receipt_image_path' => $receiptPath,
             ]);
 
-            // 4. Record Initial Status History
-            RequestStatusHistory::create([
-                'trackable_type' => Order::class,
-                'trackable_id' => $order->id,
-                'from_status' => null,
-                'to_status' => Order::STATUS_PENDING,
-                'changed_by_user_id' => Auth::id(),
-                'remarks' => 'Order submitted by customer with payment method: ' . strtoupper(str_replace('_', ' ', $request->payment_method)),
-            ]);
+            if ($request->payment_method === Payment::METHOD_GCASH) {
+                DB::table('payment_verifications')->insert([
+                    'payment_id' => $payment->id,
+                    'reference_number' => $request->gcash_reference_number,
+                    'status' => Payment::VERIFICATION_PENDING,
+                    'submitted_by' => Auth::id(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            app(OrderStatusService::class)->recordInitial(
+                $order,
+                Auth::user(),
+                'Order submitted by customer with payment method: ' . strtoupper(str_replace('_', ' ', $request->payment_method))
+            );
 
             // 5. Create Customer Notification
             Notification::create([

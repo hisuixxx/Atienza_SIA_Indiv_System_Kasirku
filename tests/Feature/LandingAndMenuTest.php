@@ -143,12 +143,11 @@ class LandingAndMenuTest extends TestCase
         $response->assertRedirect('/login?redirect=%2Fcheckout');
     }
 
-    public function test_authenticated_user_can_access_checkout(): void
+    public function test_authenticated_user_with_an_empty_cart_is_redirected_to_the_menu(): void
     {
         $user = User::factory()->create();
 
         $response = $this->actingAs($user)->get('/checkout');
-        $response->assertStatus(200);
-        $response->assertInertia(fn ($page) => $page->component('customer/checkout/index'));
+        $response->assertRedirect(route('menu'));
     }
 }

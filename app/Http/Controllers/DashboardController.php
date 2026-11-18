@@ -30,13 +30,14 @@ class DashboardController extends Controller
         };
         $end = $period === 'custom' ? ($filters['end_date'] ?? today()->toDateString()) : today()->toDateString();
         $user = $request->user();
-        $branches = $user->role === 'administrator' ? Branch::where('is_active', true)->orderBy('name')->get() : $user->branches()->where('is_active', true)->orderBy('name')->get();
+        $isAdministrator = in_array($user->role, ['admin', 'administrator'], true);
+        $branches = $isAdministrator ? Branch::where('is_active', true)->orderBy('name')->get() : $user->branches()->where('is_active', true)->orderBy('name')->get();
         $requestedBranch = $request->integer('branch_id');
         if ($requestedBranch && ! $branches->contains('id', $requestedBranch)) {
             abort(403);
         }
-        $branchId = $requestedBranch ?: ($user->role === 'administrator' ? null : $branches->first()?->id);
-        $scopeBranchOrders = fn ($query) => $branchId ? $query->where('branch_id', $branchId) : ($user->role === 'administrator' ? $query : $query->whereRaw('1 = 0'));
+        $branchId = $requestedBranch ?: ($isAdministrator ? null : $branches->first()?->id);
+        $scopeBranchOrders = fn ($query) => $branchId ? $query->where('branch_id', $branchId) : ($isAdministrator ? $query : $query->whereRaw('1 = 0'));
         $scopeOrders = fn ($query) => $scopeBranchOrders($query)->whereDate('created_at', '>=', $start)->whereDate('created_at', '<=', $end);
         $scopeBranchPayments = fn ($query) => $query->whereHas('order', fn ($orders) => $scopeBranchOrders($orders));
         $scopePayments = fn ($query) => $scopeBranchPayments($query)->whereDate('paid_at', '>=', $start)->whereDate('paid_at', '<=', $end);

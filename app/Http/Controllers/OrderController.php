@@ -9,6 +9,7 @@ use App\Models\OrderItems;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Services\InventoryService;
+use App\Services\OrderStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -21,10 +22,10 @@ class OrderController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Order::with(['orderItems.product.photos', 'payment'])
+            $query = Order::with(['orderItems.product.photos', 'payment', 'statusHistories.user', 'statusHistories.branch', 'cancellation'])
                 ->orderBy('created_at', 'desc');
             $user = $request->user();
-            if ($user->role !== 'administrator') {
+            if (! $this->isAdministrator($user)) {
                 $query->whereIn('branch_id', $user->branches()->select('branches.id'));
             } elseif ($request->filled('branch_id')) {
                 abort_unless(Branch::whereKey($request->integer('branch_id'))->where('is_active', true)->exists(), 404);
@@ -53,6 +54,19 @@ class OrderController extends Controller
                     'customer_email' => null, // Not stored in database
                     'total_amount' => $order->payment->amount ?? 0,
                     'status' => $order->status,
+                    'status_history' => $order->statusHistories->map(fn ($history) => [
+                        'from_status' => $history->from_status,
+                        'to_status' => $history->to_status,
+                        'employee' => $history->user?->name ?? 'System',
+                        'branch' => $history->branch?->name,
+                        'notes' => $history->notes,
+                        'created_at' => $history->created_at,
+                    ]),
+                    'cancellation' => $order->cancellation ? [
+                        'reason' => $order->cancellation->reason,
+                        'cancelled_at' => $order->cancellation->cancelled_at,
+                        'employee' => $order->cancellation->responsibleUser?->name,
+                    ] : null,
                     'order_type' => 'admin', // Since these are admin-created orders
                     'notes' => null, // Not stored in database
                     'created_at' => $order->created_at,
@@ -70,8 +84,8 @@ class OrderController extends Controller
                                 }),
                             ],
                             'quantity' => $item->quantity,
-                            'price' => $item->price,
-                            'subtotal' => $item->subtotal,
+                            'price' => (float) $item->price,
+                            'subtotal' => (float) $item->subtotal,
                         ];
                     }),
                     'payment' => [
@@ -117,8 +131,8 @@ class OrderController extends Controller
     public function create()
     {
         $user = request()->user();
-        abort_unless(in_array($user->role, ['administrator', 'branch_manager', 'cashier'], true), 403);
-        $branches = $user->role === 'administrator' ? Branch::where('is_active', true)->orderBy('name')->get() : $user->branches()->where('is_active', true)->orderBy('name')->get();
+        abort_unless(in_array($user->role, ['admin', 'administrator', 'branch_manager', 'cashier', 'staff'], true), 403);
+        $branches = $this->isAdministrator($user) ? Branch::where('is_active', true)->orderBy('name')->get() : $user->branches()->where('is_active', true)->orderBy('name')->get();
         $selectedBranch = request()->integer('branch_id') ?: $branches->first()?->id;
         abort_unless(! $selectedBranch || $branches->contains('id', $selectedBranch), 403);
         $availability = DB::table('product_recipes')->leftJoin('inventory', function ($join) use ($selectedBranch) {
@@ -146,7 +160,7 @@ class OrderController extends Controller
         $request->validate([
             'customer_name' => 'required|string|max:255',
             'table_number' => 'required_if:service_type,dine_in|nullable|integer|min:1',
-            'status' => 'nullable|in:pending,completed,cancelled',
+            'status' => 'nullable|in:pending,confirmed,preparing,ready,completed,cancelled',
             'branch_id' => 'nullable|exists:branches,id',
             'service_type' => 'nullable|in:dine_in,takeout',
             'notes' => 'nullable|string|max:1000',
@@ -186,10 +200,10 @@ class OrderController extends Controller
             $branchId = $request->input('branch_id');
             $branchId ??= $request->user()->branches()->value('branches.id');
             abort_unless(! $branchId || Branch::whereKey($branchId)->where('is_active', true)->exists(), 422, 'Selected branch is inactive.');
-            if ($request->user()->role !== 'administrator') {
+            if (! $this->isAdministrator($request->user())) {
                 abort_unless($request->user()->branches()->whereKey($branchId)->exists(), 403);
             }
-            abort_unless(in_array($request->user()->role, ['administrator', 'branch_manager', 'cashier'], true), 403);
+            abort_unless(in_array($request->user()->role, ['admin', 'administrator', 'branch_manager', 'cashier', 'staff'], true), 403);
             $order = Order::create([
                 'branch_id' => $branchId,
                 'order_number' => $this->generateOrderNumber(),
@@ -200,10 +214,7 @@ class OrderController extends Controller
                 'service_type' => $request->service_type ?? 'takeout',
                 'notes' => $request->notes,
             ]);
-            DB::table('order_status_histories')->insert([
-                'order_id' => $order->id, 'from_status' => null, 'to_status' => 'pending', 'user_id' => $request->user()->id,
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
+            app(OrderStatusService::class)->recordInitial($order, $request->user());
 
             // Create order items
             foreach ($validatedItems as $item) {
@@ -225,6 +236,8 @@ class OrderController extends Controller
                 'amount' => $totalAmount,
                 'payment_method' => $request->payment_method,
                 'status' => $request->payment_method === 'cash' ? 'completed' : 'pending',
+                'payment_status' => $request->payment_method === 'cash' ? 'completed' : 'pending',
+                'verification_status' => $request->payment_method === Payment::METHOD_GCASH ? Payment::VERIFICATION_PENDING : null,
                 'transaction_id' => 'POS-'.strtoupper(bin2hex(random_bytes(6))),
                 'paid_at' => $request->payment_method === 'cash' ? now() : null,
             ]);
@@ -379,20 +392,15 @@ class OrderController extends Controller
     {
         $this->authorizeOrderBranch($request, $order);
         $request->validate([
-            'status' => 'required|in:preparing,ready',
+            'status' => 'required|in:confirmed,preparing,ready',
         ]);
 
-        $allowed = ['pending' => 'preparing', 'preparing' => 'ready'];
-        abort_unless(($allowed[$order->status] ?? null) === $request->status, 422, 'Invalid order status transition.');
-        abort_unless(in_array($request->user()->role, ['administrator', 'branch_manager', 'kitchen_staff'], true), 403);
+        abort_unless(in_array($request->status, ['confirmed', 'preparing', 'ready'], true), 422, 'Invalid order status transition.');
+        abort_unless(in_array($request->user()->role, ['admin', 'administrator', 'branch_manager', 'kitchen_staff', 'kitchen'], true), 403);
 
         DB::transaction(function () use ($request, $order): void {
-            $from = $order->status;
-            $order->update(['status' => $request->status]);
-            DB::table('order_status_histories')->insert([
-                'order_id' => $order->id, 'from_status' => $from, 'to_status' => $request->status,
-                'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now(),
-            ]);
+            $lockedOrder = Order::lockForUpdate()->findOrFail($order->id);
+            app(OrderStatusService::class)->transition($lockedOrder, $request->status, $request->user());
         });
 
         return response()->json([
@@ -403,6 +411,11 @@ class OrderController extends Controller
 
     private function authorizeOrderBranch(Request $request, Order $order): void
     {
-        abort_unless($request->user()->role === 'administrator' || $request->user()->branches()->whereKey($order->branch_id)->exists(), 403);
+        abort_unless($this->isAdministrator($request->user()) || $request->user()->branches()->whereKey($order->branch_id)->exists(), 403);
+    }
+
+    private function isAdministrator($user): bool
+    {
+        return in_array($user->role, ['admin', 'administrator'], true);
     }
 }

@@ -59,7 +59,7 @@ class AuthenticatedSessionController extends Controller
         }
 
         if ($user->isStaff()) {
-            return redirect()->intended($targetUrl ?: route('admin.dashboard'))->with('success', 'Welcome back, Barista / Staff!');
+            return redirect()->intended($targetUrl ?: route('staff.dashboard'))->with('success', 'Welcome back, Barista / Staff!');
         }
 
         return redirect()->intended($targetUrl ?: route('menu'))->with('success', 'Welcome back to BrewSync, ' . $user->name . '!');
@@ -80,6 +80,6 @@ class AuthenticatedSessionController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('home')->with('success', 'You have been logged out successfully.');
+        return redirect()->route('login')->with('success', 'You have been logged out successfully.');
     }
 }

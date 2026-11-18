@@ -49,6 +49,11 @@ class User extends Authenticatable
         return $this->role === self::ROLE_ADMIN;
     }
 
+    public function isStaff(): bool
+    {
+        return $this->role === self::ROLE_STAFF;
+    }
+
     public function isKitchen(): bool
     {
         return $this->role === self::ROLE_KITCHEN;

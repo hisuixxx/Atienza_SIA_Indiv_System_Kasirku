@@ -9,6 +9,7 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Services\InventoryService;
 use App\Services\MidtransService;
+use App\Services\OrderStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -50,16 +51,14 @@ class CheckoutController extends Controller
             // Create order
             $order = Order::create([
                 'branch_id' => $branchId,
+                'user_id' => $request->user()?->id,
                 'order_number' => $orderNumber,
                 'created_by' => $request->user()?->id,
                 'customer_name' => $request->customer_name,
                 'table_number' => $request->table_number,
                 'status' => 'pending',
             ]);
-            DB::table('order_status_histories')->insert([
-                'order_id' => $order->id, 'from_status' => null, 'to_status' => 'pending', 'user_id' => $request->user()?->id,
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
+            app(OrderStatusService::class)->recordInitial($order, $request->user());
 
             $subtotalAmount = 0;
 
@@ -208,58 +207,70 @@ class CheckoutController extends Controller
      */
     public function applyTransactionStatus(string $transactionStatus, ?string $paymentType, string $orderId, ?string $fraudStatus): void
     {
-        $payment = Payment::where('transaction_id', $orderId)->firstOrFail();
-        $order = $payment->order;
+        DB::transaction(function () use ($transactionStatus, $paymentType, $orderId, $fraudStatus): void {
+            $payment = Payment::where('transaction_id', $orderId)->lockForUpdate()->firstOrFail();
+            $order = Order::lockForUpdate()->findOrFail($payment->order_id);
 
-        if ($transactionStatus == 'capture') {
-            if ($paymentType == 'credit_card') {
-                if ($fraudStatus == 'challenge') {
-                    $payment->update(['status' => 'pending']);
+            if ($transactionStatus === 'capture' && $paymentType === 'credit_card') {
+                if ($fraudStatus === 'challenge') {
+                    $payment->update(['status' => 'pending', 'payment_status' => 'pending']);
                 } else {
-                    $payment->update([
-                        'status' => 'completed',
-                        'paid_at' => now(),
-                    ]);
-                    $order->update(['status' => 'pending']);
+                    $payment->update(['status' => 'completed', 'payment_status' => 'completed', 'paid_at' => now()]);
+                }
+            } elseif ($transactionStatus === 'settlement') {
+                $payment->update(['status' => 'completed', 'payment_status' => 'completed', 'paid_at' => now()]);
+            } elseif ($transactionStatus === 'pending') {
+                $payment->update(['status' => 'pending', 'payment_status' => 'pending']);
+            } elseif (in_array($transactionStatus, ['deny', 'expire', 'cancel'], true)) {
+                $payment->update(['status' => 'failed', 'payment_status' => 'failed']);
+                if ($order->status !== Order::STATUS_CANCELLED && $order->status !== Order::STATUS_COMPLETED) {
+                    app(OrderStatusService::class)->transition($order, Order::STATUS_CANCELLED, null, 'Payment provider reported '.$transactionStatus.'.');
                 }
             }
-        } elseif ($transactionStatus == 'settlement') {
-            $payment->update([
-                'status' => 'completed',
-                'paid_at' => now(),
-            ]);
-            $order->update(['status' => 'pending']);
-        } elseif ($transactionStatus == 'pending') {
-            $payment->update(['status' => 'pending']);
-        } elseif ($transactionStatus == 'deny') {
-            $payment->update(['status' => 'failed']);
-            $order->update(['status' => 'cancelled']);
-        } elseif ($transactionStatus == 'expire') {
-            $payment->update(['status' => 'failed']);
-            $order->update(['status' => 'cancelled']);
-        } elseif ($transactionStatus == 'cancel') {
-            $payment->update(['status' => 'failed']);
-            $order->update(['status' => 'cancelled']);
-        }
+        });
     }
 
-    public function orderStatus($orderId)
+    public function orderStatus(Request $request, $orderId)
     {
-        $order = Order::with(['orderItems.product.photos', 'payment'])
+        $order = Order::with(['orderItems.product.photos', 'payment', 'statusHistories.user', 'statusHistories.branch', 'cancellation'])
             ->findOrFail($orderId);
+        $this->authorizeOrderStatusAccess($request, $order);
 
         return Inertia::render('customer/order/status', [
             'order' => $order,
         ]);
     }
 
-    public function checkOrderStatus($orderId)
+    public function checkOrderStatus(Request $request, $orderId)
     {
-        $order = Order::with(['orderItems.product.photos', 'payment'])
+        $order = Order::with(['orderItems.product.photos', 'payment', 'statusHistories.user', 'statusHistories.branch', 'cancellation'])
             ->findOrFail($orderId);
+        $this->authorizeOrderStatusAccess($request, $order);
 
         return response()->json([
             'order' => $order,
         ]);
+    }
+
+    private function authorizeOrderStatusAccess(Request $request, Order $order): void
+    {
+        $user = $request->user();
+        abort_unless($user, 403);
+
+        if ($user->role === 'customer') {
+            abort_unless((int) $order->user_id === (int) $user->id, 403);
+
+            return;
+        }
+
+        if (in_array($user->role, ['admin', 'administrator'], true)) {
+            return;
+        }
+
+        abort_unless(
+            in_array($user->role, ['staff', 'cashier', 'branch_manager', 'kitchen', 'kitchen_staff'], true)
+            && $user->branches()->whereKey($order->branch_id)->exists(),
+            403
+        );
     }
 }

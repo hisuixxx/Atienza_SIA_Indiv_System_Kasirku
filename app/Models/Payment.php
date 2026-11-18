@@ -22,6 +22,10 @@ class Payment extends Model
     public const STATUS_REJECTED = 'rejected';
     public const STATUS_FAILED = 'failed';
 
+    public const VERIFICATION_PENDING = 'pending';
+    public const VERIFICATION_VERIFIED = 'verified';
+    public const VERIFICATION_REJECTED = 'rejected';
+
     protected $guarded = ['id', 'created_at', 'updated_at'];
 
     protected function casts(): array

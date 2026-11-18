@@ -63,6 +63,15 @@ interface Order {
     created_at: string;
     order_items: OrderItem[];
     payment: Payment;
+    status_history?: {
+        from_status: string | null;
+        to_status: string;
+        employee: string;
+        branch: string | null;
+        notes: string | null;
+        created_at: string;
+    }[];
+    cancellation?: { reason: string; cancelled_at: string | null; employee: string | null } | null;
 }
 
 interface Product {
@@ -131,6 +140,7 @@ const paymentStatusConfig = {
     pending: { label: 'Pending', variant: 'secondary' as const },
     completed: { label: 'Completed', variant: 'default' as const },
     failed: { label: 'Failed', variant: 'destructive' as const },
+    rejected: { label: 'Rejected', variant: 'destructive' as const },
 };
 
 export default function OrdersIndex({ orders, products, filters }: Props) {
@@ -1094,6 +1104,33 @@ export default function OrdersIndex({ orders, products, filters }: Props) {
                                                 <Calendar className="h-4 w-4" />
                                                 <span>{formatDate(selectedOrder.created_at)}</span>
                                             </div>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle>Status history</CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="space-y-3">
+                                            {selectedOrder.status_history?.map((history, index) => (
+                                                <div key={`${history.created_at}-${index}`} className="border-b pb-2 last:border-0">
+                                                    <p className="font-medium">
+                                                        {history.from_status ? `${history.from_status} → ` : ''}
+                                                        {history.to_status}
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {history.employee} · {history.branch ?? 'Branch'} · {formatDate(history.created_at)}
+                                                    </p>
+                                                    {history.notes && <p className="text-sm">{history.notes}</p>}
+                                                </div>
+                                            ))}
+                                            {!selectedOrder.status_history?.length && <p className="text-sm text-muted-foreground">No status changes recorded.</p>}
+                                            {selectedOrder.cancellation && (
+                                                <div className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-800">
+                                                    <strong>Cancelled by {selectedOrder.cancellation.employee ?? 'employee'}:</strong> {selectedOrder.cancellation.reason}
+                                                    {selectedOrder.cancellation.cancelled_at && <p>{formatDate(selectedOrder.cancellation.cancelled_at)}</p>}
+                                                </div>
+                                            )}
                                         </CardContent>
                                     </Card>
 

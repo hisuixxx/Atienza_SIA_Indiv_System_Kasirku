@@ -12,7 +12,7 @@ test('guests cannot access the dashboard', function () {
 });
 
 test('dashboard reports accurate revenue and order counts', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     $product = Product::factory()->create(['price' => 10000]);
 
@@ -48,7 +48,7 @@ test('dashboard reports accurate revenue and order counts', function () {
 });
 
 test('dashboard ranks top products by quantity sold', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     $popular = Product::factory()->create(['name' => 'Popular Item', 'price' => 5000]);
     $niche = Product::factory()->create(['name' => 'Niche Item', 'price' => 50000]);
@@ -79,7 +79,7 @@ test('dashboard ranks top products by quantity sold', function () {
 });
 
 test('dashboard lists recent orders with their payment total', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     $order = Order::factory()->create(['customer_name' => 'Wati', 'status' => 'completed']);
     Payment::factory()->completed()->create(['order_id' => $order->id, 'amount' => 33000]);
@@ -94,7 +94,7 @@ test('dashboard lists recent orders with their payment total', function () {
 });
 
 test('dashboard handles having no data at all', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     $response = $this->get('/admin/dashboard');
 
@@ -108,7 +108,7 @@ test('dashboard handles having no data at all', function () {
 });
 
 test('category count is unaffected by unrelated data', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     Category::factory()->count(3)->create();
 
     $response = $this->get('/admin/dashboard');
@@ -117,7 +117,7 @@ test('category count is unaffected by unrelated data', function () {
 });
 
 test('dashboard includes a 14-day revenue trend ending today', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     $order = Order::factory()->create();
     Payment::factory()->completed()->create(['order_id' => $order->id, 'amount' => 17500, 'paid_at' => today()]);
@@ -133,7 +133,7 @@ test('dashboard includes a 14-day revenue trend ending today', function () {
 });
 
 test('dashboard breaks orders down by status for the chart', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     Order::factory()->create(['status' => 'pending']);
     Order::factory()->count(2)->create(['status' => 'completed']);

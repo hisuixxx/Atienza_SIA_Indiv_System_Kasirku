@@ -9,7 +9,7 @@ test('guests cannot access category management', function () {
 });
 
 test('admin can list categories with product counts', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     $category = Category::factory()->create(['name' => 'Makanan']);
     Product::factory()->count(2)->create(['category_id' => $category->id]);
@@ -24,7 +24,7 @@ test('admin can list categories with product counts', function () {
 });
 
 test('admin can create a category', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     $response = $this->post('/admin/categories', ['name' => 'Minuman']);
 
@@ -33,7 +33,7 @@ test('admin can create a category', function () {
 });
 
 test('category name must be unique', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     Category::factory()->create(['name' => 'Minuman']);
 
     $response = $this->from('/admin/categories')->post('/admin/categories', ['name' => 'Minuman']);
@@ -43,7 +43,7 @@ test('category name must be unique', function () {
 });
 
 test('admin can update a category', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $category = Category::factory()->create(['name' => 'Old Name']);
 
     $response = $this->put("/admin/categories/{$category->id}", ['name' => 'New Name']);
@@ -53,7 +53,7 @@ test('admin can update a category', function () {
 });
 
 test('deleting a category without products succeeds', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $category = Category::factory()->create();
 
     $response = $this->delete("/admin/categories/{$category->id}");
@@ -63,7 +63,7 @@ test('deleting a category without products succeeds', function () {
 });
 
 test('deleting a category with products fails', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $category = Category::factory()->create();
     Product::factory()->create(['category_id' => $category->id]);
 

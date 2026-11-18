@@ -10,7 +10,7 @@ test('guests cannot access order management', function () {
 });
 
 test('an Inertia navigation to the orders page gets a real Inertia response, not raw JSON', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
 
     // Mirrors the headers axios/Inertia's client actually sends on a visit,
     // including a matching asset version so the request isn't intercepted
@@ -35,7 +35,7 @@ test('an Inertia navigation to the orders page gets a real Inertia response, not
 });
 
 test('order list shows the frozen item price, not the current product price', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $product = Product::factory()->create(['price' => 10000]);
     $order = Order::factory()->create();
     OrderItems::factory()->create([
@@ -57,7 +57,7 @@ test('order list shows the frozen item price, not the current product price', fu
 });
 
 test('admin can create a cash order with correct tax calculation', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $product = Product::factory()->create(['price' => 15000]);
 
     $response = $this->postJson('/admin/orders', [
@@ -85,7 +85,7 @@ test('admin can create a cash order with correct tax calculation', function () {
 });
 
 test('admin can update order status', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $order = Order::factory()->create(['status' => 'pending']);
 
     $response = $this->postJson("/admin/orders/{$order->id}/update-status", ['status' => 'preparing']);
@@ -95,7 +95,7 @@ test('admin can update order status', function () {
 });
 
 test('only cancelled orders can be deleted', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $pendingOrder = Order::factory()->create(['status' => 'pending']);
 
     $response = $this->from('/admin/orders')->delete("/admin/orders/{$pendingOrder->id}");
@@ -105,7 +105,7 @@ test('only cancelled orders can be deleted', function () {
 });
 
 test('cancelled orders remain available as financial records', function () {
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(User::factory()->admin()->create());
     $order = Order::factory()->create(['status' => 'cancelled']);
 
     $response = $this->delete("/admin/orders/{$order->id}");

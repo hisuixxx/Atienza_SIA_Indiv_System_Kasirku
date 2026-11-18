@@ -51,7 +51,7 @@ class CheckoutAndOrdersTest extends TestCase
     public function test_guest_cannot_access_checkout(): void
     {
         $response = $this->get(route('checkout.index'));
-        $response->assertRedirect(route('login'));
+        $response->assertRedirect(route('login', ['redirect' => '/checkout']));
     }
 
     public function test_user_with_empty_cart_redirects_to_menu(): void

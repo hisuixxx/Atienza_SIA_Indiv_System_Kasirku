@@ -84,7 +84,7 @@ export interface Payment {
     id: number;
     order_id: number;
     amount: number;
-    status: 'pending' | 'completed' | 'failed';
+    status: 'pending' | 'completed' | 'failed' | 'rejected';
     payment_method: string | null;
     transaction_id: string | null;
     paid_at: string | null;
@@ -95,11 +95,24 @@ export interface Order {
     id: number;
     customer_name: string | null;
     table_number: number;
-    status: 'pending' | 'completed' | 'cancelled';
+    status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'ready_for_pickup' | 'out_for_delivery' | 'completed' | 'cancelled';
     created_at: string;
     updated_at: string;
     order_items: OrderItem[];
     payment: Payment;
+    status_histories?: {
+        from_status: string | null;
+        to_status: string;
+        created_at: string;
+        user?: { name: string } | null;
+        branch?: { name: string } | null;
+        notes?: string | null;
+    }[];
+    cancellation?: {
+        reason: string;
+        cancelled_at: string | null;
+        responsible_user?: { name: string } | null;
+    } | null;
 }
 
 export interface Pagination {
